@@ -167,7 +167,7 @@ YatinVeda is a production-ready, full-stack platform that bridges ancient Vedic 
 
 ```powershell
 # Clone and start the entire platform
-git clone https://github.com/yourusername/YatinVeda.git
+git clone https://github.com/Keninjavelas/YatinVeda.git
 cd YatinVeda
 docker compose up -d --build
 ```
