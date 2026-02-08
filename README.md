@@ -465,6 +465,323 @@ backend/tests/
 
 ---
 
+## 🛠️ Troubleshooting & Deployment Issues
+
+### Common Deployment Errors
+
+<details>
+<summary><b>Docker Container Issues</b></summary>
+
+#### Error: "Port already in use"
+```bash
+Error: bind: address already in use
+```
+
+**Solution:**
+```powershell
+# Find process using the port
+netstat -ano | findstr :8000
+# Kill the process
+taskkill /PID <process_id> /F
+
+# Or use different ports in docker-compose.yml
+ports:
+  - "8001:8000"  # Change host port
+```
+
+#### Error: "Cannot connect to Docker daemon"
+```bash
+error during connect: This error may indicate that the docker daemon is not running
+```
+
+**Solution:**
+- Ensure Docker Desktop is running
+- Restart Docker Desktop
+- Check Docker Desktop settings → Resources → WSL integration (Windows)
+
+#### Error: "Image build failed"
+```bash
+ERROR [internal] load metadata for docker.io/library/python:3.9-slim
+```
+
+**Solution:**
+```powershell
+# Clear Docker cache and rebuild
+docker system prune -a
+docker compose build --no-cache
+docker compose up -d
+```
+
+</details>
+
+<details>
+<summary><b>Database Migration Errors</b></summary>
+
+#### Error: "Target database is not up to date"
+```bash
+FAILED: Target database is not up to date.
+```
+
+**Solution:**
+```powershell
+cd backend
+# Check current revision
+alembic current
+
+# Apply all migrations
+alembic upgrade head
+
+# If stuck, check migration history
+alembic history
+```
+
+#### Error: "Can't locate revision identified by"
+```bash
+sqlalchemy.exc.InvalidRequestError: Can't locate revision identified by 'xxxxx'
+```
+
+**Solution:**
+```powershell
+# Reset database (development only!)
+rm yatinveda.db
+alembic stamp head
+alembic upgrade head
+```
+
+#### Error: "Multiple head revisions are present"
+```bash
+FAILED: Multiple head revisions are present
+```
+
+**Solution:**
+```powershell
+# Merge multiple heads
+alembic merge heads -m "merge multiple heads"
+alembic upgrade head
+```
+
+</details>
+
+<details>
+<summary><b>Backend API Errors</b></summary>
+
+#### Error: "ModuleNotFoundError"
+```python
+ModuleNotFoundError: No module named 'fastapi'
+```
+
+**Solution:**
+```powershell
+cd backend
+pip install -r requirements.txt
+# Or reinstall
+pip install --upgrade --force-reinstall -r requirements.txt
+```
+
+#### Error: "SECRET_KEY not found"
+```bash
+KeyError: 'SECRET_KEY'
+```
+
+**Solution:**
+```powershell
+# Create .env file
+cp .env.example .env
+# Edit .env and set SECRET_KEY
+# Generate secure key:
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+#### Error: "Database connection failed"
+```bash
+sqlalchemy.exc.OperationalError: unable to open database file
+```
+
+**Solution:**
+```powershell
+# Ensure database directory exists
+mkdir -p backend
+# Check DATABASE_URL in .env
+# Verify file permissions
+# For PostgreSQL, check connection string format
+DATABASE_URL=postgresql://user:password@localhost:5432/yatinveda
+```
+
+#### Error: "CORS policy blocked"
+```bash
+Access to fetch at 'http://localhost:8000' from origin 'http://localhost:3000' has been blocked by CORS policy
+```
+
+**Solution:**
+```python
+# In backend/main.py, verify CORS settings:
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Add your frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+</details>
+
+<details>
+<summary><b>Frontend Build Errors</b></summary>
+
+#### Error: "npm ERR! code ELIFECYCLE"
+```bash
+npm ERR! code ELIFECYCLE
+npm ERR! errno 1
+```
+
+**Solution:**
+```powershell
+cd frontend
+# Clear cache
+rm -rf node_modules package-lock.json
+npm cache clean --force
+npm install
+```
+
+#### Error: "Module not found: Can't resolve"
+```bash
+Module not found: Error: Can't resolve '@/components/...'
+```
+
+**Solution:**
+```powershell
+# Check tsconfig.json paths configuration
+# Ensure files exist in correct directory
+# Restart dev server
+npm run dev
+```
+
+#### Error: "NEXT_PUBLIC_API_BASE_URL is undefined"
+```bash
+TypeError: Cannot read property 'NEXT_PUBLIC_API_BASE_URL' of undefined
+```
+
+**Solution:**
+```powershell
+# Create .env.local in frontend directory
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+# Restart dev server
+```
+
+</details>
+
+<details>
+<summary><b>Production Deployment Issues</b></summary>
+
+#### SSL/TLS Certificate Errors
+```bash
+SSL: CERTIFICATE_VERIFY_FAILED
+```
+
+**Solution:**
+- Use Let's Encrypt for free SSL certificates
+- Follow [HTTPS/TLS Configuration Guide](docs/guides/HTTPS_TLS_CONFIGURATION_GUIDE.md)
+- For development, use self-signed certificates: `scripts/generate-dev-certificates.bat`
+
+#### Error: "502 Bad Gateway" (Nginx)
+```bash
+nginx: [emerg] host not found in upstream "backend"
+```
+
+**Solution:**
+```powershell
+# Check backend service is running
+docker compose logs backend
+
+# Verify nginx.conf upstream configuration
+upstream backend {
+    server backend:8000;  # Must match service name in docker-compose.yml
+}
+
+# Restart nginx
+docker compose restart proxy
+```
+
+#### Performance Issues in Production
+**Symptoms:** Slow response times, high memory usage
+
+**Solution:**
+```powershell
+# Enable production optimizations in .env:
+DEBUG=false
+ACCESS_TOKEN_EXPIRE_MINUTES=15  # Shorter expiry
+REFRESH_TOKEN_BINDING=true      # IP binding
+
+# Use PostgreSQL instead of SQLite
+DATABASE_URL=postgresql://user:password@host:5432/dbname
+
+# Enable Redis for caching
+REDIS_URL=redis://localhost:6379/0
+
+# Configure Nginx caching and compression
+# See nginx/nginx.conf
+
+# Monitor with Prometheus/Grafana
+# Follow: docs/guides/PROMETHEUS_GRAFANA_MONITORING_GUIDE.md
+```
+
+</details>
+
+### Pre-Deployment Checklist
+
+Before deploying to production, ensure:
+
+```bash
+✅ Environment Variables
+  - SECRET_KEY set to cryptographically random value
+  - DATABASE_URL pointing to PostgreSQL (not SQLite)
+  - Email provider credentials configured
+  - Payment gateway keys (Razorpay) set
+  - AI API keys configured (OpenAI/Anthropic)
+
+✅ Security
+  - REFRESH_TOKEN_BINDING=true
+  - HTTPS/SSL certificates installed
+  - CORS origins configured (no wildcards)
+  - Rate limiting enabled via Redis
+  - Security headers configured in Nginx
+
+✅ Database
+  - All migrations applied (alembic upgrade head)
+  - Database backups configured
+  - Connection pooling optimized
+
+✅ Monitoring & Logging
+  - Log aggregation setup (ELK, CloudWatch, etc.)
+  - Application monitoring configured
+  - Error tracking enabled (Sentry, etc.)
+  - Health check endpoints working
+
+✅ Performance
+  - Redis caching enabled
+  - Nginx gzip compression enabled
+  - Static assets optimized
+  - Database indexes created
+
+✅ Testing
+  - All tests passing (pytest)
+  - Load testing completed
+  - Security scanning performed
+```
+
+### Getting Help
+
+If you encounter issues not covered here:
+
+1. **Check Logs:** `docker compose logs -f [service-name]`
+2. **Review Documentation:** See [docs/](docs/) for detailed guides
+3. **Search Issues:** Check [GitHub Issues](https://github.com/yourusername/YatinVeda/issues)
+4. **Ask Community:** Open a [Discussion](https://github.com/yourusername/YatinVeda/discussions)
+5. **Report Bugs:** Use the [Bug Report Template](.github/ISSUE_TEMPLATE/bug_report.md)
+
+---
+
 ## 🏗️ Architecture & Technology
 
 ### Technology Stack
