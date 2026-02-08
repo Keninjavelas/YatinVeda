@@ -1,0 +1,269 @@
+# Kubernetes Deployment Example for YatinVeda Backend
+# This demonstrates how to use the health check endpoints for production deployment
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: yatinveda
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: yatinveda-backend-config
+  namespace: yatinveda
+data:
+  # Application configuration
+  PROJECT_NAME: "YatinVeda API"
+  VERSION: "1.0.0"
+  ENVIRONMENT: "production"
+  # Database configuration (use secrets for sensitive data)
+  DATABASE_URL: "postgresql://user:password@postgres-service:5432/yatinveda"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: yatinveda-backend
+  namespace: yatinveda
+  labels:
+    app: yatinveda-backend
+    version: v1
+spec:
+  replicas: 3  # High availability with 3 replicas
+  selector:
+    matchLabels:
+      app: yatinveda-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0  # Zero downtime deployments
+  template:
+    metadata:
+      labels:
+        app: yatinveda-backend
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/api/v1/metrics"
+        prometheus.io/port: "8000"
+    spec:
+      containers:
+      - name: backend
+        image: yatinveda/backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        
+        # Environment variables from ConfigMap
+        envFrom:
+        - configMapRef:
+            name: yatinveda-backend-config
+        
+        # Resource limits and requests
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        
+        # Liveness probe - detects hung/crashed processes
+        # If this fails, Kubernetes will restart the pod
+        livenessProbe:
+          httpGet:
+            path: /api/v1/liveness
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 30  # Wait 30s after start
+          periodSeconds: 10         # Check every 10s
+          timeoutSeconds: 5         # 5s timeout
+          successThreshold: 1       # 1 success = healthy
+          failureThreshold: 3       # 3 failures = restart
+        
+        # Readiness probe - determines if pod can receive traffic
+        # If this fails, pod is removed from load balancer
+        readinessProbe:
+          httpGet:
+            path: /api/v1/readiness
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 10   # Wait 10s after start
+          periodSeconds: 5          # Check every 5s
+          timeoutSeconds: 3         # 3s timeout
+          successThreshold: 1       # 1 success = ready
+          failureThreshold: 2       # 2 failures = not ready
+        
+        # Startup probe - for slow-starting applications
+        # Disables liveness/readiness until startup completes
+        startupProbe:
+          httpGet:
+            path: /api/v1/liveness
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 0
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 30      # Allow up to 150s for startup
+        
+        # Security context
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: yatinveda-backend
+  namespace: yatinveda
+  labels:
+    app: yatinveda-backend
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: yatinveda-backend
+
+---
+# Horizontal Pod Autoscaler - automatically scale based on metrics
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: yatinveda-backend-hpa
+  namespace: yatinveda
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: yatinveda-backend
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300  # Wait 5 min before scaling down
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0    # Scale up immediately
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30
+      - type: Pods
+        value: 2
+        periodSeconds: 30
+
+---
+# Pod Disruption Budget - ensure minimum availability during disruptions
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: yatinveda-backend-pdb
+  namespace: yatinveda
+spec:
+  minAvailable: 2  # Always keep at least 2 pods running
+  selector:
+    matchLabels:
+      app: yatinveda-backend
+
+---
+# Ingress for external access (adjust for your ingress controller)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: yatinveda-backend-ingress
+  namespace: yatinveda
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+spec:
+  tls:
+  - hosts:
+    - api.yatinveda.com
+    secretName: yatinveda-backend-tls
+  rules:
+  - host: api.yatinveda.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: yatinveda-backend
+            port:
+              number: 80
+
+---
+# NetworkPolicy for security (optional)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: yatinveda-backend-netpol
+  namespace: yatinveda
+spec:
+  podSelector:
+    matchLabels:
+      app: yatinveda-backend
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8000
+  egress:
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53

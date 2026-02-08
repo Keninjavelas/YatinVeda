@@ -1,0 +1,184 @@
+name: Deploy to Environments
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+      - develop
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE_NAME: ${{ github.repository }}-backend
+  FRONTEND_IMAGE_NAME: ${{ github.repository }}-frontend
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    environment: staging
+    permissions:
+      packages: read
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+
+      - name: Deploy to Staging
+        run: |
+          # Set environment variables from GitHub Secrets
+          echo "DEPLOY_HOST=${{ secrets.STAGING_HOST }}" > .env.staging
+          echo "DEPLOY_USER=${{ secrets.STAGING_USER }}" >> .env.staging
+          
+          # Update remote server with latest images
+          ssh ${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }} << 'EOF'
+            set -e
+            
+            # Pull latest images
+            docker pull ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:develop
+            docker pull ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:develop
+            
+            # Stop existing containers
+            docker-compose -f docker-compose.staging.yml down
+            
+            # Update environment variables
+            export DATABASE_URL="${{ secrets.STAGING_DATABASE_URL }}"
+            export SECRET_KEY="${{ secrets.STAGING_SECRET_KEY }}"
+            export REDIS_URL="${{ secrets.STAGING_REDIS_URL }}"
+            export SMTP_SERVER="${{ secrets.STAGING_SMTP_SERVER }}"
+            export SMTP_PORT="${{ secrets.STAGING_SMTP_PORT }}"
+            export SMTP_USERNAME="${{ secrets.STAGING_SMTP_USERNAME }}"
+            export SMTP_PASSWORD="${{ secrets.STAGING_SMTP_PASSWORD }}"
+            export SMTP_FROM_EMAIL="${{ secrets.STAGING_SMTP_FROM_EMAIL }}"
+            export OLLAMA_BASE_URL="${{ secrets.STAGING_OLLAMA_BASE_URL }}"
+            
+            # Start services with new images
+            docker-compose -f docker-compose.staging.yml up -d
+            
+            # Clean up old images
+            docker image prune -f
+          EOF
+
+      - name: Run Health Check
+        run: |
+          # Wait for service to be ready
+          sleep 10
+          
+          # Health check
+          curl -f ${{ secrets.STAGING_HEALTH_CHECK_URL }} || exit 1
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-alpha') && !contains(github.ref, '-beta'))
+    environment: production
+    permissions:
+      packages: read
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+
+      - name: Deploy to Production
+        run: |
+          # Set environment variables from GitHub Secrets
+          echo "DEPLOY_HOST=${{ secrets.PROD_HOST }}" > .env.production
+          echo "DEPLOY_USER=${{ secrets.PROD_USER }}" >> .env.production
+          
+          # Update remote server with latest images
+          ssh ${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }} << 'EOF'
+            set -e
+            
+            # Pull latest images tagged with the release version or main branch
+            if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+              TAG=$(echo "${{ github.ref }}" | sed 's|refs/tags/||')
+              docker pull ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:$TAG
+              docker pull ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:$TAG
+              
+              # Update docker-compose to use tagged images
+              sed -i "s|image: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:.*|image: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:$TAG|" docker-compose.prod.yml
+              sed -i "s|image: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:.*|image: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:$TAG|" docker-compose.prod.yml
+            else
+              docker pull ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:main
+              docker pull ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:main
+            fi
+            
+            # Stop existing containers
+            docker-compose -f docker-compose.prod.yml down
+            
+            # Update environment variables
+            export DATABASE_URL="${{ secrets.PROD_DATABASE_URL }}"
+            export SECRET_KEY="${{ secrets.PROD_SECRET_KEY }}"
+            export REDIS_URL="${{ secrets.PROD_REDIS_URL }}"
+            export SMTP_SERVER="${{ secrets.PROD_SMTP_SERVER }}"
+            export SMTP_PORT="${{ secrets.PROD_SMTP_PORT }}"
+            export SMTP_USERNAME="${{ secrets.PROD_SMTP_USERNAME }}"
+            export SMTP_PASSWORD="${{ secrets.PROD_SMTP_PASSWORD }}"
+            export SMTP_FROM_EMAIL="${{ secrets.PROD_SMTP_FROM_EMAIL }}"
+            export OLLAMA_BASE_URL="${{ secrets.PROD_OLLAMA_BASE_URL }}"
+            export COOKIE_SECURE="true"
+            export ENABLE_HTTPS="true"
+            
+            # Start services with new images
+            docker-compose -f docker-compose.prod.yml up -d
+            
+            # Clean up old images
+            docker image prune -f
+          EOF
+
+      - name: Run Health Check
+        run: |
+          # Wait for service to be ready
+          sleep 15
+          
+          # Health check
+          curl -f ${{ secrets.PROD_HEALTH_CHECK_URL }} || exit 1
+
+      - name: Notify Deployment Success
+        if: success()
+        run: |
+          # Send notification to webhook or Slack (optional)
+          if [ "${{ secrets.DEPLOYMENT_WEBHOOK_URL }}" != "" ]; then
+            curl -X POST -H "Content-Type: application/json" \
+              -d "{\"text\":\"Production deployment successful: ${{ github.repository }} ${{ github.ref }}\"}" \
+              ${{ secrets.DEPLOYMENT_WEBHOOK_URL }}
+          fi
+
+  rollback-production:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.rollback == 'true'
+    environment: production
+    permissions:
+      packages: read
+      contents: read
+    steps:
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+
+      - name: Rollback Production
+        run: |
+          ssh ${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }} << 'EOF'
+            set -e
+            
+            # Stop current containers
+            docker-compose -f docker-compose.prod.yml down
+            
+            # Start previous stable version
+            # This would typically involve restoring from a backup or reverting to a previous tag
+            # Implementation depends on your rollback strategy
+            
+            # Restart services
+            docker-compose -f docker-compose.prod.yml up -d
+          EOF

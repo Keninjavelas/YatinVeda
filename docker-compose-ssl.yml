@@ -1,0 +1,204 @@
+version: "3.9"
+
+services:
+  # Redis for advanced rate limiting and caching
+  redis:
+    image: redis:7-alpine
+    container_name: yatinveda-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  # Backend service with enhanced security configuration
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: yatinveda-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Core application settings
+      - SECRET_KEY=${SECRET_KEY:-development-secret-change-in-production}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./yatinveda.db}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      
+      # Authentication settings
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS:-14}
+      - REFRESH_TOKEN_BINDING=${REFRESH_TOKEN_BINDING:-false}
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
+      - COOKIE_SAMESITE=${COOKIE_SAMESITE:-lax}
+      
+      # Certificate management
+      - CERT_PROVIDER=${CERT_PROVIDER:-self-signed}
+      - CERT_PATH=${CERT_PATH:-/etc/ssl/certs}
+      - KEY_PATH=${KEY_PATH:-/etc/ssl/private}
+      - CERT_RENEWAL_DAYS=${CERT_RENEWAL_DAYS:-30}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-admin@yatinveda.com}
+      
+      # Domain configuration
+      - PRODUCTION_DOMAINS=${PRODUCTION_DOMAINS:-yatinveda.com,api.yatinveda.com}
+      - STAGING_DOMAINS=${STAGING_DOMAINS:-staging.yatinveda.com}
+      
+      # Redis configuration
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      
+      # LLM Configuration
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      
+      # Email configuration
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      
+      # Security monitoring
+      - SECURITY_WEBHOOK_URL=${SECURITY_WEBHOOK_URL:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ENABLE_SECURITY_MONITORING=${ENABLE_SECURITY_MONITORING:-true}
+      
+    volumes:
+      - ./backend:/app
+      - backend_db:/app/yatinveda.db
+      - ssl_certs:/etc/ssl/certs
+      - ssl_keys:/etc/ssl/private
+      - certbot_webroot:/var/www/certbot
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Frontend service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: yatinveda-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-https://localhost}
+      - NODE_ENV=${NODE_ENV:-development}
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Nginx reverse proxy with SSL termination
+  proxy:
+    image: nginx:alpine
+    container_name: yatinveda-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Development port
+    volumes:
+      # Configuration files
+      - ./nginx/nginx-ssl.conf:/etc/nginx/nginx.conf:ro
+      
+      # SSL certificates (managed by Certificate Manager)
+      - ssl_certs:/etc/ssl/certs:ro
+      - ssl_keys:/etc/ssl/private:ro
+      
+      # Let's Encrypt challenge directory
+      - certbot_webroot:/var/www/certbot:ro
+      
+      # Logs
+      - nginx_logs:/var/log/nginx
+      
+    depends_on:
+      - backend
+      - frontend
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Certbot for Let's Encrypt certificates (production only)
+  certbot:
+    image: certbot/certbot
+    container_name: yatinveda-certbot
+    volumes:
+      - ssl_certs:/etc/letsencrypt/live
+      - ssl_keys:/etc/letsencrypt/archive
+      - certbot_webroot:/var/www/certbot
+      - certbot_logs:/var/log/letsencrypt
+    command: certonly --webroot --webroot-path=/var/www/certbot --email ${LETSENCRYPT_EMAIL:-admin@yatinveda.com} --agree-tos --no-eff-email -d ${PRODUCTION_DOMAINS:-yatinveda.com}
+    profiles:
+      - production  # Only run in production profile
+    depends_on:
+      - proxy
+
+  # Certificate renewal service (production only)
+  cert-renewer:
+    image: certbot/certbot
+    container_name: yatinveda-cert-renewer
+    volumes:
+      - ssl_certs:/etc/letsencrypt/live
+      - ssl_keys:/etc/letsencrypt/archive
+      - certbot_webroot:/var/www/certbot
+      - certbot_logs:/var/log/letsencrypt
+    command: sh -c "while :; do sleep 12h; certbot renew --quiet --webroot --webroot-path=/var/www/certbot; done"
+    profiles:
+      - production  # Only run in production profile
+    depends_on:
+      - certbot
+    restart: unless-stopped
+
+volumes:
+  # Application data
+  backend_db:
+    driver: local
+  
+  # Redis data
+  redis_data:
+    driver: local
+  
+  # SSL certificates and keys
+  ssl_certs:
+    driver: local
+  ssl_keys:
+    driver: local
+  
+  # Certbot data
+  certbot_webroot:
+    driver: local
+  certbot_logs:
+    driver: local
+  
+  # Nginx logs
+  nginx_logs:
+    driver: local
+
+networks:
+  default:
+    name: yatinveda-network
+    driver: bridge

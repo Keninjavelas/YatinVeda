@@ -1,0 +1,45 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.0
+sqlalchemy==2.0.36
+pydantic==2.9.2
+pydantic-core==2.23.4
+python-jose==3.3.0
+bcrypt==4.1.2
+alembic==1.13.2
+slowapi==0.1.9
+psutil==5.9.8
+pytest==8.2.2
+pytest-asyncio==0.23.8
+
+# Multi-Factor Authentication
+pyotp==2.9.0
+qrcode[pil]==7.4.2
+cryptography==43.0.1
+
+# LLM Integration (AI Assistant)
+openai==1.31.0
+anthropic==0.25.1
+requests==2.31.0
+
+# PDF Generation
+reportlab==4.0.9
+Pillow==10.1.0
+
+# Optional: Redis cache (for production)
+redis==5.0.1
+
+# Async file operations (for certificate management)
+aiofiles==23.2.0
+
+# Optional: OpenTelemetry tracing (for observability)
+opentelemetry-api==1.21.0
+opentelemetry-sdk==1.21.0
+opentelemetry-instrumentation-fastapi==0.42b0
+opentelemetry-instrumentation-sqlalchemy==0.42b0
+opentelemetry-instrumentation-redis==0.42b0
+opentelemetry-exporter-otlp==1.21.0
+opentelemetry-exporter-jaeger==1.21.0
+
+# Monitoring: Prometheus metrics
+prometheus-client==0.20.0
+
