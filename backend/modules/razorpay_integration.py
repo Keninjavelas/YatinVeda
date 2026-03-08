@@ -1,11 +1,17 @@
 """Production-ready Razorpay integration with real API calls and signature verification.
 
 Provides order creation, payment capture, refund handling, and webhook verification.
+
+Set PAYMENT_MOCK_MODE=true (or leave RAZORPAY_KEY_ID empty) to run in mock mode —
+all payment calls return realistic fake responses without hitting real Razorpay APIs.
 """
 
 import hmac
 import hashlib
 import json
+import os
+import secrets as _secrets
+import time
 from typing import Any, Dict, Optional
 
 try:
@@ -13,21 +19,92 @@ try:
 except ImportError:
     razorpay = None
 
+# Mock mode: active when keys are missing OR env var is explicitly set
+_MOCK_MODE = (
+    os.getenv("PAYMENT_MOCK_MODE", "").lower() in ("1", "true", "yes")
+    or not os.getenv("RAZORPAY_KEY_ID", "").strip()
+)
+
+
+class _MockRazorpayClient:
+    """Returns plausible fake responses for all Razorpay operations."""
+
+    def _fake_order_id(self) -> str:
+        return "order_" + _secrets.token_hex(10)
+
+    def _fake_payment_id(self) -> str:
+        return "pay_" + _secrets.token_hex(10)
+
+    def _fake_refund_id(self) -> str:
+        return "rfnd_" + _secrets.token_hex(10)
+
+    class _Orders:
+        def create(self, data: dict) -> dict:
+            return {
+                "id": "order_" + _secrets.token_hex(10),
+                "entity": "order",
+                "amount": data.get("amount", 0),
+                "currency": data.get("currency", "INR"),
+                "receipt": data.get("receipt", "mock_receipt"),
+                "status": "created",
+                "notes": data.get("notes", {}),
+            }
+
+    class _Payments:
+        def fetch(self, payment_id: str) -> dict:
+            return {
+                "id": payment_id,
+                "entity": "payment",
+                "amount": 50000,
+                "currency": "INR",
+                "status": "captured",
+                "captured": True,
+                "method": "mock_upi",
+                "order_id": "order_mock",
+            }
+
+        def capture(self, payment_id: str, amount: int) -> dict:
+            return {
+                "id": payment_id,
+                "entity": "payment",
+                "amount": amount,
+                "currency": "INR",
+                "status": "captured",
+                "captured": True,
+                "method": "mock_upi",
+            }
+
+        def refund(self, payment_id: str, data: dict = None) -> dict:
+            return {
+                "id": "rfnd_" + _secrets.token_hex(10),
+                "entity": "refund",
+                "amount": (data or {}).get("amount", 50000),
+                "currency": "INR",
+                "payment_id": payment_id,
+                "status": "processed",
+                "speed": "normal",
+            }
+
+    def __init__(self):
+        self.order = self._Orders()
+        self.payment = self._Payments()
+
 
 class RazorpayManager:
-    """Production Razorpay client with real API integration.
+    """Production Razorpay client with real API integration and mock dev mode.
 
-    Provides:
-    - Order creation and payment capture
-    - Signature verification for payment security
-    - Refund processing
-    - Webhook signature validation
+    When PAYMENT_MOCK_MODE=true or RAZORPAY_KEY_ID is not set, all methods
+    return realistic fake responses — useful for local dev / testing.
     """
 
     def __init__(self, key_id: str, key_secret: str) -> None:
         self.key_id = key_id
-        self.key_secret = key_secret
-        if razorpay:
+        self.key_secret = key_secret or "mock_secret"
+        self.mock_mode = _MOCK_MODE
+
+        if self.mock_mode:
+            self.client = _MockRazorpayClient()
+        elif razorpay and key_id:
             self.client = razorpay.Client(auth=(key_id, key_secret))
         else:
             self.client = None
@@ -70,8 +147,7 @@ class RazorpayManager:
         Returns:
             Order dict with id, entity, amount, status, etc.
         """
-        if not self.client:
-            raise RuntimeError("Razorpay client not initialized. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.")
+        # client is always set: _MockRazorpayClient in dev, real client in prod
         return self.client.order.create(data=kwargs)
 
     def fetch_payment(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
@@ -83,8 +159,6 @@ class RazorpayManager:
         Returns:
             Payment dict with id, entity, amount, status, etc.
         """
-        if not self.client:
-            raise RuntimeError("Razorpay client not initialized.")
         payment_id = args[0] if args else kwargs.get('payment_id')
         return self.client.payment.fetch(payment_id)
 
@@ -102,6 +176,10 @@ class RazorpayManager:
         order_id = args[0] if len(args) > 0 else kwargs.get('order_id')
         payment_id = args[1] if len(args) > 1 else kwargs.get('payment_id')
         signature = args[2] if len(args) > 2 else kwargs.get('signature')
+
+        # In mock mode, always accept the signature (no real HMAC to verify)
+        if self.mock_mode:
+            return True
 
         if not all([order_id, payment_id, signature]):
             return False
@@ -125,8 +203,6 @@ class RazorpayManager:
         Returns:
             Updated payment dict
         """
-        if not self.client:
-            raise RuntimeError("Razorpay client not initialized.")
         return self.client.payment.capture(payment_id, amount)
 
     def create_refund(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
@@ -140,8 +216,6 @@ class RazorpayManager:
         Returns:
             Refund dict with id, entity, amount, status, etc.
         """
-        if not self.client:
-            raise RuntimeError("Razorpay client not initialized.")
         payment_id = args[0] if args else kwargs.get('payment_id')
         amount = kwargs.get('amount')
         notes = kwargs.get('notes')

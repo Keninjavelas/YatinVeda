@@ -72,9 +72,18 @@ Remaining.md
 .env
 .env.local
 .env.*.local
-
+.env.dev
 # SSL Certificates (keep templates, ignore generated ones)
 *.pem
 *.key
 *.crt
 !nginx/ssl/README.md
+
+# Monitoring data (auto-generated volumes)
+monitoring/grafana/data/
+prometheus_data/
+
+# Extra env variants
+.env.production
+.env.staging
+.env.development
