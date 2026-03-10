@@ -13,7 +13,7 @@ import psutil
 import threading
 
 try:
-    from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+    from prometheus_client import Counter, Histogram, Gauge, REGISTRY, generate_latest, CONTENT_TYPE_LATEST
     PROMETHEUS_AVAILABLE = True
     logger = logging.getLogger(__name__)
 except ImportError:
@@ -24,50 +24,68 @@ except ImportError:
 
 # Global Prometheus metrics (will be no-ops if prometheus_client not available)
 if PROMETHEUS_AVAILABLE:
+    def _get_or_create_counter(name, documentation, labelnames=None):
+        existing = REGISTRY._names_to_collectors.get(name)  # type: ignore[attr-defined]
+        if existing:
+            return existing
+        return Counter(name, documentation, labelnames or [])
+
+    def _get_or_create_histogram(name, documentation, labelnames=None):
+        existing = REGISTRY._names_to_collectors.get(name)  # type: ignore[attr-defined]
+        if existing:
+            return existing
+        return Histogram(name, documentation, labelnames or [])
+
+    def _get_or_create_gauge(name, documentation, labelnames=None):
+        existing = REGISTRY._names_to_collectors.get(name)  # type: ignore[attr-defined]
+        if existing:
+            return existing
+        return Gauge(name, documentation, labelnames or [])
+
     # HTTP request metrics
-    REQUEST_COUNT = Counter(
+    REQUEST_COUNT = _get_or_create_counter(
         'http_requests_total',
         'Total HTTP requests',
         ['method', 'endpoint', 'status']
     )
 
-    REQUEST_DURATION = Histogram(
+    REQUEST_DURATION = _get_or_create_histogram(
         'http_request_duration_seconds',
         'HTTP request duration in seconds',
         ['method', 'endpoint']
     )
 
-    ACTIVE_REQUESTS = Gauge(
+    ACTIVE_REQUESTS = _get_or_create_gauge(
         'http_active_requests',
         'Number of active HTTP requests'
     )
 
     # Database metrics
-    DB_CONNECTIONS = Gauge(
+    DB_CONNECTIONS = _get_or_create_gauge(
         'db_connections',
         'Number of database connections'
     )
 
     # User metrics
-    USER_COUNT = Gauge(
+    USER_COUNT = _get_or_create_gauge(
         'app_users_total',
         'Total number of users'
     )
 
     # Error metrics
-    ERROR_COUNT = Counter(
+    ERROR_COUNT = _get_or_create_counter(
         'http_errors_total',
         'Total HTTP errors',
         ['method', 'endpoint', 'status']
     )
 
     # Cache metrics
-    CACHE_HITS = Counter(
+    CACHE_HITS = _get_or_create_counter(
         'cache_hits_total',
         'Total cache hits'
     )
 
-    CACHE_MISSES = Counter(
+    CACHE_MISSES = _get_or_create_counter(
         'cache_misses_total',
         'Total cache misses'
     )

@@ -5,15 +5,18 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { useToast } from '@/lib/toast-context'
+import { useI18n } from '@/lib/i18n'
+import LanguageSwitcher from '@/components/language-switcher'
 import { 
   Menu, X, LogOut, Settings, LayoutDashboard, MessageSquare, Users, 
-  Book, Calendar, Wallet, User, Shield
+  Book, Calendar, Wallet, User, Shield, UserCog
 } from 'lucide-react'
 
 export default function Navbar() {
   const router = useRouter()
   const { user, logout, isAuthenticated } = useAuth()
   const { addToast } = useToast()
+  const { t } = useI18n()
   const [isOpen, setIsOpen] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
 
@@ -28,13 +31,16 @@ export default function Navbar() {
   }
 
   const navItems = [
-    { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { href: '/chat', label: 'AI Assistant', icon: MessageSquare },
-    { href: '/community', label: 'Community', icon: Users },
-    { href: '/book-appointment', label: 'Book Session', icon: Calendar },
-    { href: '/prescriptions', label: 'Prescriptions', icon: Book },
-    { href: '/profile', label: 'Profile', icon: User },
+    { href: '/dashboard', label: t('nav_dashboard', 'Dashboard'), icon: LayoutDashboard },
+    { href: '/chat', label: t('nav_ai_assistant', 'AI Assistant'), icon: MessageSquare },
+    { href: '/community', label: t('nav_community', 'Community'), icon: Users },
+    { href: '/book-appointment', label: t('nav_book_session', 'Book Session'), icon: Calendar },
+    { href: '/prescriptions', label: t('nav_prescriptions', 'Prescriptions'), icon: Book },
+    { href: '/profile', label: t('nav_profile', 'Profile'), icon: User },
+    { href: '/video-consult', label: t('nav_video_consult', 'Video Consult'), icon: Calendar },
   ]
+
+  const practitionerNavItem = { href: '/practitioner-portal', label: t('nav_practitioner_portal', 'Practitioner Portal'), icon: UserCog }
 
   if (!isAuthenticated) return null
 
@@ -65,10 +71,20 @@ export default function Navbar() {
                 </Link>
               )
             })}
+            {user?.role === 'practitioner' && (
+              <Link
+                href={practitionerNavItem.href}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-amber-300 hover:text-white hover:bg-slate-700/50 rounded-lg transition-all"
+              >
+                <UserCog className="w-4 h-4" />
+                <span className="hidden xl:inline">{practitionerNavItem.label}</span>
+              </Link>
+            )}
           </div>
 
           {/* User Menu */}
           <div className="flex items-center gap-4">
+            <LanguageSwitcher />
             <div className="relative">
               <button
                 onClick={() => setShowUserMenu(!showUserMenu)}
@@ -94,8 +110,19 @@ export default function Navbar() {
                     onClick={() => setShowUserMenu(false)}
                   >
                     <User className="w-4 h-4" />
-                    Profile Settings
+                    {t('nav_profile_settings', 'Profile Settings')}
                   </Link>
+
+                  {user?.role === 'practitioner' && (
+                    <Link
+                      href="/practitioner-portal"
+                      className="flex items-center gap-3 px-4 py-3 text-sm text-amber-300 hover:bg-slate-700 transition-colors"
+                      onClick={() => setShowUserMenu(false)}
+                    >
+                      <UserCog className="w-4 h-4" />
+                      {t('nav_practitioner_portal', 'Practitioner Portal')}
+                    </Link>
+                  )}
 
                   {user?.is_admin && (
                     <Link
@@ -104,7 +131,7 @@ export default function Navbar() {
                       onClick={() => setShowUserMenu(false)}
                     >
                       <Shield className="w-4 h-4" />
-                      Admin Panel
+                      {t('nav_admin_panel', 'Admin Panel')}
                     </Link>
                   )}
 
@@ -116,7 +143,7 @@ export default function Navbar() {
                     className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-400 hover:bg-slate-700 transition-colors border-t border-slate-700"
                   >
                     <LogOut className="w-4 h-4" />
-                    Sign Out
+                    {t('nav_sign_out', 'Sign Out')}
                   </button>
                 </div>
               )}
@@ -153,6 +180,16 @@ export default function Navbar() {
                 </Link>
               )
             })}
+            {user?.role === 'practitioner' && (
+              <Link
+                href={practitionerNavItem.href}
+                className="flex items-center gap-3 px-4 py-3 text-sm text-amber-300 hover:text-white hover:bg-slate-700/50 rounded-lg transition-all"
+                onClick={() => setIsOpen(false)}
+              >
+                <UserCog className="w-4 h-4" />
+                {practitionerNavItem.label}
+              </Link>
+            )}
           </div>
         )}
       </div>

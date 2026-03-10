@@ -18,7 +18,7 @@ from modules.email_verification import send_verification_email, verify_email_tok
 from database import get_db
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from models.database import RefreshToken, User
+from models.database import RefreshToken, User, UserSubscription, SubscriptionAuditLog
 from schemas.validation import UserCreate as UserCreateValidated
 from schemas.dual_registration import (
     UserRegistrationData, PractitionerRegistrationData, RegistrationData,
@@ -31,6 +31,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 import os
 import secrets
+from modules.entitlements import PLAN_CATALOG, get_or_create_subscription, resolve_entitlements
 
 router = APIRouter(tags=["auth"])
 
@@ -209,6 +210,38 @@ class Token(BaseModel):
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
+
+
+class SubscriptionUpdateRequest(BaseModel):
+    subscription_plan: str
+    subscription_status: str
+    trial_days: Optional[int] = None
+    plan_duration_days: Optional[int] = None
+    reason: Optional[str] = None
+
+
+class SubscriptionResponse(BaseModel):
+    user_id: int
+    plan: str
+    status: str
+    is_active: bool
+    trial_active: bool
+    trial_ends_at: Optional[str]
+    plan_expires_at: Optional[str]
+    limits: dict
+    features: dict
+
+
+class SubscriptionAuditItem(BaseModel):
+    id: int
+    actor_user_id: int
+    target_user_id: int
+    old_plan: Optional[str]
+    new_plan: str
+    old_status: Optional[str]
+    new_status: str
+    reason: Optional[str]
+    created_at: str
 
 class PractitionerProfileUpdate(BaseModel):
     professional_title: Optional[str] = None
@@ -779,6 +812,133 @@ async def update_user_profile(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error updating user profile"
         )
+
+
+@router.get("/entitlements", response_model=SubscriptionResponse)
+async def get_my_entitlements(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Return current user's plan entitlements and feature availability."""
+    user = db.query(User).filter(User.id == current_user["user_id"]).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    subscription = get_or_create_subscription(user, db)
+    payload = resolve_entitlements(subscription)
+    return SubscriptionResponse(user_id=user.id, **payload)
+
+
+@router.patch("/entitlements/{user_id}", response_model=SubscriptionResponse)
+async def update_user_entitlements(
+    user_id: int,
+    request: SubscriptionUpdateRequest,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+):
+    """Admin-only endpoint to assign or update a user's subscription plan."""
+    if request.subscription_plan not in PLAN_CATALOG:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid plan. Allowed plans: {list(PLAN_CATALOG.keys())}",
+        )
+
+    if request.subscription_status not in {"trial", "active", "grace_period", "past_due", "cancelled", "expired"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid subscription status",
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    subscription = db.query(UserSubscription).filter(UserSubscription.user_id == user.id).first()
+    if not subscription:
+        subscription = UserSubscription(user_id=user.id)
+        db.add(subscription)
+        db.flush()
+
+    old_plan = subscription.subscription_plan
+    old_status = subscription.subscription_status
+
+    subscription.subscription_plan = request.subscription_plan
+    subscription.subscription_status = request.subscription_status
+
+    now = datetime.utcnow()
+    if request.trial_days is not None:
+        subscription.trial_ends_at = now + timedelta(days=request.trial_days)
+    elif request.subscription_status == "trial" and subscription.trial_ends_at is None:
+        subscription.trial_ends_at = now + timedelta(days=14)
+
+    if request.plan_duration_days is not None:
+        subscription.plan_expires_at = now + timedelta(days=request.plan_duration_days)
+
+    audit = SubscriptionAuditLog(
+        actor_user_id=admin["user_id"],
+        target_user_id=user.id,
+        old_plan=old_plan,
+        new_plan=subscription.subscription_plan,
+        old_status=old_status,
+        new_status=subscription.subscription_status,
+        reason=request.reason,
+        audit_metadata={
+            "trial_days": request.trial_days,
+            "plan_duration_days": request.plan_duration_days,
+        },
+    )
+    db.add(audit)
+
+    db.commit()
+    db.refresh(subscription)
+
+    payload = resolve_entitlements(subscription)
+    return SubscriptionResponse(user_id=user.id, **payload)
+
+
+@router.get("/entitlements/audit", response_model=List[SubscriptionAuditItem])
+async def list_subscription_audit(
+    user_id: Optional[int] = None,
+    actor_user_id: Optional[int] = None,
+    plan: Optional[str] = None,
+    status_filter: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+):
+    """Admin-only endpoint to review subscription changes audit trail."""
+    query = db.query(SubscriptionAuditLog)
+    if user_id is not None:
+        query = query.filter(SubscriptionAuditLog.target_user_id == user_id)
+    if actor_user_id is not None:
+        query = query.filter(SubscriptionAuditLog.actor_user_id == actor_user_id)
+    if plan is not None:
+        query = query.filter(SubscriptionAuditLog.new_plan == plan)
+    if status_filter is not None:
+        query = query.filter(SubscriptionAuditLog.new_status == status_filter)
+
+    rows = (
+        query
+        .order_by(SubscriptionAuditLog.created_at.desc())
+        .offset(max(offset, 0))
+        .limit(min(max(limit, 1), 500))
+        .all()
+    )
+    return [
+        SubscriptionAuditItem(
+            id=row.id,
+            actor_user_id=row.actor_user_id,
+            target_user_id=row.target_user_id,
+            old_plan=row.old_plan,
+            new_plan=row.new_plan,
+            old_status=row.old_status,
+            new_status=row.new_status,
+            reason=row.reason,
+            created_at=row.created_at.isoformat(),
+        )
+        for row in rows
+    ]
 
 @router.put("/profile/practitioner", response_model=dict)
 async def update_practitioner_profile(

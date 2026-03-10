@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import uuid
 import asyncio
+import logging
 from datetime import datetime
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
@@ -18,34 +19,24 @@ from sqlalchemy.exc import SQLAlchemyError
 import uvicorn
 import os
 
-# Advanced rate limiting support - disabled for now due to import issues
-ADVANCED_RATE_LIMITER_AVAILABLE = False
-# try:
-#     from middleware.rate_limiter import (
-#         AdvancedRateLimiter, 
-#         RateLimitMiddleware, 
-#         create_rate_limiter,
-#         RateLimitRule,
-#         RateLimitAction
-#     )
-#     ADVANCED_RATE_LIMITER_AVAILABLE = True
-# except ImportError as e:
-#     ADVANCED_RATE_LIMITER_AVAILABLE = False
-
-# Optional slowapi support (rate limiting). In test environments or when the
-# dependency is not installed, we gracefully degrade to no-op rate limiting so
-# that imports and tests still work.
+# Rate limiting support - use slowapi with graceful fallback
+# slowapi is in requirements.txt and provides robust rate limiting
 try:
     from slowapi.errors import RateLimitExceeded
     from slowapi import Limiter, _rate_limit_exceeded_handler
     from slowapi.util import get_remote_address
     SLOWAPI_AVAILABLE = True
-except ModuleNotFoundError:
+    logger_init = logging.getLogger(__name__)
+    logger_init.info("slowapi rate limiter available")
+except ImportError as e:
+    # Fallback if slowapi cannot be imported
     RateLimitExceeded = Exception  # Fallback type for handler registration
     Limiter = None
     _rate_limit_exceeded_handler = None
     get_remote_address = None
     SLOWAPI_AVAILABLE = False
+    logger_init = logging.getLogger(__name__)
+    logger_init.warning(f"slowapi not available, using mock rate limiter: {e}")
 
 from config import settings
 from database_config import init_db
@@ -85,100 +76,69 @@ except ImportError:
 except Exception as e:
     logger.warning(f"Failed to set up tracing: {e}")
 
-# Rate limiter - create a mock in test mode or when rate limiting is unavailable
+# ====== RATE LIMITER SETUP ======
+# Determine if we're in test mode
 _testing = os.getenv("PYTEST_CURRENT_TEST") is not None or os.getenv("DISABLE_RATELIMIT") == "1"
 
-# Initialize advanced rate limiter
-advanced_rate_limiter = None
-if not _testing and ADVANCED_RATE_LIMITER_AVAILABLE:
-    try:
-        # Create advanced rate limiter with Redis backend
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        whitelist_ips = []
-        
-        # Add localhost and common development IPs to whitelist in development
-        environment = os.getenv("ENVIRONMENT", "development")
-        if environment == "development":
-            whitelist_ips = ["127.0.0.1", "::1", "localhost"]
-        
-        # Create custom rules for different endpoints
-        custom_rules = {
-            "login_attempts": RateLimitRule(
-                name="login_attempts",
-                limit=5,
-                window=3600,  # 5 attempts per hour
-                action=RateLimitAction.PROGRESSIVE_DELAY,
-                progressive_multiplier=2.0,
-                max_delay=300,  # Max 5 minutes delay
-                block_duration=3600  # Block for 1 hour after limit
-            ),
-            "anonymous_global": RateLimitRule(
-                name="anonymous_global",
-                limit=100,
-                window=60,  # 100 requests per minute
-                action=RateLimitAction.THROTTLE
-            ),
-            "authenticated_global": RateLimitRule(
-                name="authenticated_global",
-                limit=1000,
-                window=60,  # 1000 requests per minute
-                action=RateLimitAction.THROTTLE
-            ),
-            "api_endpoint": RateLimitRule(
-                name="api_endpoint",
-                limit=100,
-                window=60,  # 100 requests per minute per endpoint
-                action=RateLimitAction.THROTTLE
-            )
-        }
-        
-        advanced_rate_limiter = create_rate_limiter(
-            redis_url=redis_url,
-            whitelist_ips=whitelist_ips,
-            custom_rules=custom_rules
-        )
-        logger.info("Advanced rate limiter initialized with Redis backend")
-        
-    except Exception as e:
-        logger.warning(f"Failed to initialize advanced rate limiter: {str(e)}")
-        advanced_rate_limiter = None
-
-# Fallback to slowapi if advanced rate limiter is not available
-if _testing or not SLOWAPI_AVAILABLE:
-    # Mock limiter that does nothing
+# Initialize limiter based on availability
+if _testing:
+    # In test mode, use mock limiter that does nothing
     class MockLimiter:
         def limit(self, *args, **kwargs):
             def decorator(func):
                 return func
             return decorator
-
         def shared_limit(self, *args, **kwargs):
             def decorator(func):
                 return func
             return decorator
-
     limiter = MockLimiter()
-elif not advanced_rate_limiter and SLOWAPI_AVAILABLE:
-    # Use slowapi as fallback
-    limiter = Limiter(key_func=get_remote_address)
-    logger.info("Using slowapi rate limiter as fallback")
+    logger.info("Using mock rate limiter (test mode)")
+elif SLOWAPI_AVAILABLE:
+    # Production: use slowapi for rate limiting
+    limiter = Limiter(
+        key_func=get_remote_address,
+        default_limits=["1000 per minute"],  # Global default
+        storage_uri=os.getenv("REDIS_URL", "memory://")  # Use Redis if available, else memory
+    )
+    logger.info("Using slowapi rate limiter")
 else:
-    # Create mock limiter when using advanced rate limiter
+    # Fallback: use mock limiter
     class MockLimiter:
         def limit(self, *args, **kwargs):
             def decorator(func):
                 return func
             return decorator
-
         def shared_limit(self, *args, **kwargs):
             def decorator(func):
                 return func
             return decorator
-
     limiter = MockLimiter()
+    logger.warning("slowapi not available - rate limiting disabled")
 
-# Import API routers
-from api.v1 import guru_booking, payments, admin, auth, user_charts, profile, prescriptions, chat, community, health, mfa, security, security_testing
+# ====== API IMPORTS ======
+from api.v1 import (
+    admin,
+    auth,
+    chat,
+    community,
+    cookies,
+    gdpr,
+    guru_booking,
+    health,
+    mfa,
+    payments,
+    practitioner,
+    prescriptions,
+    profile,
+    security,
+    security_testing,
+    user_charts,
+    websocket,
+)
+
+# Keep this explicit for compatibility with startup wiring that references it.
+advanced_rate_limiter = None
 
 # Create FastAPI application
 app = FastAPI(
@@ -189,10 +149,14 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Add rate limiter state (only when slowapi is installed and not testing)
-if not _testing and SLOWAPI_AVAILABLE and _rate_limit_exceeded_handler is not None and not advanced_rate_limiter:
+# Add rate limiter state (when slowapi is installed and not in test mode)
+if not _testing and SLOWAPI_AVAILABLE and _rate_limit_exceeded_handler is not None:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    logger.info("Rate limiter exception handler registered")
+else:
+    app.state.limiter = limiter
+    logger.debug("Rate limiter state set (may be mock)")
 
 # Add global exception handlers
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
@@ -309,8 +273,12 @@ app.include_router(community.router, prefix="/api/v1/community", tags=["Communit
 app.include_router(guru_booking.router, prefix="/api/v1", tags=["Guru Booking"])
 app.include_router(payments.router, prefix="/api/v1/payments", tags=["Payments & Wallet"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
+app.include_router(practitioner.router, prefix="/api/v1", tags=["Practitioner Portal"])
+app.include_router(websocket.router, prefix="/api/v1", tags=["WebSocket"])
 app.include_router(security.router, prefix="/api/v1", tags=["Security Monitoring"])
 app.include_router(security_testing.router, prefix="/api/v1", tags=["Security Testing"])
+app.include_router(gdpr.router, prefix="/api/v1/gdpr", tags=["GDPR & Privacy"])
+app.include_router(cookies.router, prefix="/api/v1/cookies", tags=["Cookie Consent"])
 
 # Add CSP violation reporting endpoint
 @app.post("/api/v1/security/csp-report")

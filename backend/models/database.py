@@ -146,6 +146,52 @@ class Guru(Base):
         ]
 
 
+class UserSubscription(Base):
+    __tablename__ = "user_subscriptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    subscription_plan = Column(String(30), default="starter", nullable=False)
+    subscription_status = Column(String(30), default="trial", nullable=False)
+    trial_ends_at = Column(DateTime, nullable=True)
+    plan_expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User")
+
+
+class SubscriptionAuditLog(Base):
+    __tablename__ = "subscription_audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    target_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    old_plan = Column(String(30), nullable=True)
+    new_plan = Column(String(30), nullable=False)
+    old_status = Column(String(30), nullable=True)
+    new_status = Column(String(30), nullable=False)
+    reason = Column(String(255), nullable=True)
+    audit_metadata = Column("metadata", JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class BillingWebhookEvent(Base):
+    __tablename__ = "billing_webhook_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    provider = Column(String(40), nullable=False, index=True)
+    event_id = Column(String(120), nullable=True, index=True)
+    event_type = Column(String(120), nullable=False, index=True)
+    idempotency_key = Column(String(200), nullable=False, unique=True, index=True)
+    signature = Column(String(255), nullable=True)
+    status = Column(String(30), default="received", nullable=False, index=True)
+    payload = Column(JSON, nullable=False)
+    received_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    processed_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+
 class GuruBooking(Base):
     __tablename__ = "guru_bookings"
 
@@ -557,3 +603,66 @@ class EmailVerificationToken(Base):
     def is_used(self) -> bool:
         """Check if the token has been used."""
         return bool(self.used_at is not None)
+
+
+# Internationalization models
+class ExchangeRate(Base):
+    """Exchange rates for currency conversion"""
+    __tablename__ = "exchange_rates"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    base_currency = Column(String(3), nullable=False, index=True)
+    target_currency = Column(String(3), nullable=False, index=True)
+    rate = Column(Integer, nullable=False)  # Stored as multiplier * 10000 for precision
+    provider = Column(String(50), nullable=False)  # openexchangerates, currencyapi, manual
+    last_updated = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class LegalConsent(Base):
+    """User consent tracking for GDPR compliance"""
+    __tablename__ = "legal_consent"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # Nullable for anonymous
+    consent_type = Column(String(50), nullable=False)  # terms, privacy, cookies, marketing
+    consent_version = Column(String(20), nullable=False)
+    consented_at = Column(DateTime, default=datetime.utcnow)
+    withdrawn_at = Column(DateTime, nullable=True)
+    ip_address = Column(String(45), nullable=True)  # IPv6 support
+    user_agent = Column(String(500), nullable=True)
+    
+    user = relationship("User")
+
+
+class CookiePreference(Base):
+    """User cookie preferences for GDPR compliance"""
+    __tablename__ = "cookie_preferences"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # Nullable for anonymous
+    session_id = Column(String(100), nullable=True, index=True)  # For anonymous users
+    essential = Column(Boolean, default=True)  # Always true
+    functional = Column(Boolean, default=False)
+    analytics = Column(Boolean, default=False)
+    marketing = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    user = relationship("User")
+
+
+class DataExportRequest(Base):
+    """GDPR data export and deletion request tracking"""
+    __tablename__ = "data_export_requests"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    request_type = Column(String(20), nullable=False)  # export or delete
+    status = Column(String(20), default="pending")  # pending, processing, completed, failed
+    requested_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    file_url = Column(String, nullable=True)
+    expires_at = Column(DateTime, nullable=True)  # For download links (30 days)
+    error_message = Column(Text, nullable=True)
+    
+    user = relationship("User")

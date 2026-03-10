@@ -610,6 +610,89 @@ async def refresh_meeting_link(
         "created_at": booking.created_at
     }
 
+
+@router.get("/bookings/{booking_id}/video-session")
+async def get_video_session(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get joinable video session details for a booking.
+
+    If no meeting link exists and booking is paid/confirmed, generate one.
+    """
+    booking = db.query(GuruBooking).filter(GuruBooking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    is_admin = getattr(current_user, "is_admin", False)
+    if booking.user_id != current_user.id and not is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    if booking.status not in ["confirmed", "completed"] and booking.payment_status not in ["paid", "completed"]:
+        raise HTTPException(status_code=400, detail="Video session is available only for paid/confirmed bookings")
+
+    if not booking.meeting_link:
+        import secrets
+
+        token = secrets.token_urlsafe(16)
+        booking.meeting_link = f"https://meet.yatinveda.com/session/{booking.id}-{booking.guru_id}?t={token}"
+        booking.updated_at = datetime.now(UTC)
+        db.commit()
+        db.refresh(booking)
+
+    scheduled_start_utc = None
+    scheduled_end_utc = None
+    join_window_opens_utc = None
+    join_window_closes_utc = None
+    lifecycle_state = "join_window_open"
+    can_join = True
+    join_hint = "You can join this session now."
+
+    try:
+        slot_start = booking.time_slot.split("-")[0].strip()
+        # booking.booking_date is persisted as datetime; this keeps the date stable.
+        start_naive = datetime.fromisoformat(f"{booking.booking_date.date().isoformat()}T{slot_start}:00")
+        start_utc = start_naive.replace(tzinfo=UTC)
+        end_utc = start_utc + timedelta(minutes=booking.duration_minutes)
+        opens_utc = start_utc - timedelta(minutes=15)
+        closes_utc = end_utc + timedelta(minutes=30)
+
+        now_utc = datetime.now(UTC)
+        if now_utc < opens_utc:
+            lifecycle_state = "scheduled"
+            can_join = False
+            join_hint = "Session not yet open. Join window starts 15 minutes before session time."
+        elif now_utc > closes_utc:
+            lifecycle_state = "expired"
+            can_join = False
+            join_hint = "Join window has ended. Refresh link if extension is allowed."
+
+        scheduled_start_utc = start_utc.isoformat()
+        scheduled_end_utc = end_utc.isoformat()
+        join_window_opens_utc = opens_utc.isoformat()
+        join_window_closes_utc = closes_utc.isoformat()
+    except Exception:
+        # If date/time parsing fails, keep endpoint usable with a permissive fallback.
+        lifecycle_state = "join_window_open"
+        can_join = True
+        join_hint = "Session timing unavailable; join link is currently active."
+
+    return {
+        "booking_id": booking.id,
+        "meeting_link": booking.meeting_link,
+        "session_type": booking.session_type,
+        "status": booking.status,
+        "payment_status": booking.payment_status,
+        "scheduled_start_utc": scheduled_start_utc,
+        "scheduled_end_utc": scheduled_end_utc,
+        "join_window_opens_utc": join_window_opens_utc,
+        "join_window_closes_utc": join_window_closes_utc,
+        "lifecycle_state": lifecycle_state,
+        "can_join": can_join,
+        "join_hint": join_hint,
+    }
+
 @router.patch("/bookings/{booking_id}/cancel")
 async def cancel_booking(
     booking_id: int,

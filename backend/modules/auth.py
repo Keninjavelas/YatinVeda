@@ -243,6 +243,56 @@ async def get_current_user_401(
         verification_status=payload.get("verification_status")
     )
 
+
+async def get_current_user_optional(
+    request: Request
+) -> Optional['UserInfo']:
+    """Get current user if authenticated, otherwise return None.
+    
+    This is useful for endpoints that work for both authenticated and anonymous users.
+    Does not raise an exception if no credentials are provided.
+    """
+    auth = request.headers.get("Authorization")
+    if not auth or not auth.startswith("Bearer "):
+        return None
+    
+    try:
+        token = auth.replace("Bearer ", "")
+        payload = verify_token(token)
+        if payload is None or payload.get("sub") is None:
+            return None
+        
+        class UserInfo:
+            def __init__(self, user_id, username, is_admin=False, role=None, verification_status=None):
+                self._data = {
+                    'id': user_id,
+                    'user_id': user_id,
+                    'username': username,
+                    'is_admin': is_admin,
+                    'role': role,
+                    'verification_status': verification_status
+                }
+                self.id = user_id
+                self.username = username
+                self.is_admin = is_admin
+                self.role = role
+                self.verification_status = verification_status
+            def __getitem__(self, key):
+                return self._data[key]
+            def get(self, key, default=None):
+                return self._data.get(key, default)
+        
+        return UserInfo(
+            user_id=payload.get("user_id"),
+            username=payload.get("sub"),
+            is_admin=payload.get("is_admin", False),
+            role=payload.get("role"),
+            verification_status=payload.get("verification_status")
+        )
+    except Exception:
+        # If token verification fails, just return None instead of raising
+        return None
+
 def authenticate_user(username: str, password: str, db):
     """Authenticate user with username and password"""
     user = db.get_user(username=username)

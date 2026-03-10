@@ -20,53 +20,45 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Add unique constraints to prevent duplicate entries using batch mode for SQLite."""
-    
-    # SQLite requires batch mode for adding constraints
-    with op.batch_alter_table('post_likes', schema=None) as batch_op:
-        batch_op.create_unique_constraint(
-            'uq_post_likes_user_post',
-            ['user_id', 'post_id']
-        )
-    
-    with op.batch_alter_table('comment_likes', schema=None) as batch_op:
-        batch_op.create_unique_constraint(
-            'uq_comment_likes_user_comment',
-            ['user_id', 'comment_id']
-        )
-    
-    with op.batch_alter_table('user_follows', schema=None) as batch_op:
-        batch_op.create_unique_constraint(
-            'uq_user_follows_follower_following',
-            ['follower_id', 'following_id']
-        )
-    
-    with op.batch_alter_table('event_registrations', schema=None) as batch_op:
-        batch_op.create_unique_constraint(
-            'uq_event_registrations_user_event',
-            ['user_id', 'event_id']
-        )
-    
-    with op.batch_alter_table('guru_availability', schema=None) as batch_op:
-        batch_op.create_unique_constraint(
-            'uq_guru_availability_guru_date_slot',
-            ['guru_id', 'date', 'time_slot']
-        )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    tables = set(inspector.get_table_names())
+
+    unique_indexes_to_create = [
+        ('post_likes', 'uq_post_likes_user_post', ['user_id', 'post_id']),
+        ('comment_likes', 'uq_comment_likes_user_comment', ['user_id', 'comment_id']),
+        ('user_follows', 'uq_user_follows_follower_following', ['follower_id', 'following_id']),
+        ('event_registrations', 'uq_event_registrations_user_event', ['user_id', 'event_id']),
+        ('guru_availability', 'uq_guru_availability_guru_date_slot', ['guru_id', 'date', 'time_slot']),
+    ]
+
+    for table, index_name, columns in unique_indexes_to_create:
+        if table not in tables:
+            continue
+        existing_indexes = {idx.get('name') for idx in inspector.get_indexes(table)}
+        if index_name in existing_indexes:
+            continue
+        op.create_index(index_name, table, columns, unique=True)
 
 
 def downgrade() -> None:
     """Remove unique constraints using batch mode for SQLite."""
-    
-    with op.batch_alter_table('guru_availability', schema=None) as batch_op:
-        batch_op.drop_constraint('uq_guru_availability_guru_date_slot', type_='unique')
-    
-    with op.batch_alter_table('event_registrations', schema=None) as batch_op:
-        batch_op.drop_constraint('uq_event_registrations_user_event', type_='unique')
-    
-    with op.batch_alter_table('user_follows', schema=None) as batch_op:
-        batch_op.drop_constraint('uq_user_follows_follower_following', type_='unique')
-    
-    with op.batch_alter_table('comment_likes', schema=None) as batch_op:
-        batch_op.drop_constraint('uq_comment_likes_user_comment', type_='unique')
-    
-    with op.batch_alter_table('post_likes', schema=None) as batch_op:
-        batch_op.drop_constraint('uq_post_likes_user_post', type_='unique')
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    tables = set(inspector.get_table_names())
+
+    unique_indexes_to_drop = [
+        ('guru_availability', 'uq_guru_availability_guru_date_slot'),
+        ('event_registrations', 'uq_event_registrations_user_event'),
+        ('user_follows', 'uq_user_follows_follower_following'),
+        ('comment_likes', 'uq_comment_likes_user_comment'),
+        ('post_likes', 'uq_post_likes_user_post'),
+    ]
+
+    for table, index_name in unique_indexes_to_drop:
+        if table not in tables:
+            continue
+        existing_indexes = {idx.get('name') for idx in inspector.get_indexes(table)}
+        if index_name not in existing_indexes:
+            continue
+        op.drop_index(index_name, table)

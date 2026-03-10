@@ -114,10 +114,10 @@ YatinVeda is a production-ready, full-stack platform that bridges ancient Vedic 
 ### 🟡 Medium Priority
 
 - [ ] **Advanced Analytics Dashboard** - Practitioner performance metrics and insights
-- [ ] **Internationalization (i18n)** - Multi-language support for global reach
 - [ ] **Advanced Search** - Elasticsearch integration for faster queries
 - [ ] **Video Consultations** - WebRTC integration for online sessions
 - [ ] **Astrological Calculations** - Native chart calculation engine (currently relies on external data)
+- [ ] **Stripe Integration** - Add Stripe payment gateway for international markets
 
 ### 🟢 Nice to Have
 

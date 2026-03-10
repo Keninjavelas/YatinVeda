@@ -15,10 +15,12 @@ import logging
 from database import get_db
 from models.database import (
     User, Payment, Refund, Wallet, WalletTransaction,
-    GuruBooking
+    GuruBooking, BillingWebhookEvent
 )
 from modules.auth import get_current_user
+from modules.admin_auth import require_admin
 from modules.razorpay_integration import RazorpayManager
+from modules.billing_events import normalize_razorpay_event, verify_razorpay_webhook_signature
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,18 @@ class LoadWalletRequest(BaseModel):
 
 class CreateSubscriptionRequest(BaseModel):
     plan_type: str  # monthly, quarterly, yearly
+
+
+class BillingWebhookEventResponse(BaseModel):
+    id: int
+    provider: str
+    event_id: Optional[str] = None
+    event_type: str
+    idempotency_key: str
+    status: str
+    received_at: str
+    processed_at: Optional[str] = None
+    error_message: Optional[str] = None
     
     
 # ===== HELPERS =====
@@ -486,16 +500,18 @@ async def razorpay_webhook(
     """
     Handle Razorpay webhook events
     """
+    event_record: BillingWebhookEvent | None = None
     try:
         # Get raw body
         body = await request.body()
         body_str = body.decode("utf-8")
         
         # Verify signature
-        is_valid = razorpay_manager.verify_webhook_signature(
+        is_valid = verify_razorpay_webhook_signature(
+            razorpay_manager,
             body_str,
             x_razorpay_signature,
-            RAZORPAY_WEBHOOK_SECRET
+            RAZORPAY_WEBHOOK_SECRET,
         )
         
         if not is_valid:
@@ -504,6 +520,34 @@ async def razorpay_webhook(
         # Parse event
         import json
         event_data = json.loads(body_str)
+        normalized = normalize_razorpay_event(event_data, body_str)
+
+        # Idempotent persistence for webhook processing
+        existing = db.query(BillingWebhookEvent).filter(
+            BillingWebhookEvent.idempotency_key == normalized["idempotency_key"]
+        ).first()
+        if existing and existing.status == "processed":
+            return {"success": True, "duplicate": True}
+
+        if existing:
+            event_record = existing
+            event_record.payload = normalized["payload"]
+            event_record.signature = x_razorpay_signature
+            event_record.status = "received"
+            event_record.error_message = None
+        else:
+            event_record = BillingWebhookEvent(
+                provider=normalized["provider"],
+                event_id=normalized["event_id"],
+                event_type=normalized["event_type"],
+                idempotency_key=normalized["idempotency_key"],
+                signature=x_razorpay_signature,
+                status="received",
+                payload=normalized["payload"],
+            )
+            db.add(event_record)
+        db.commit()
+
         event_type = event_data.get("event")
         payload = event_data.get("payload", {}).get("payment", {}).get("entity", {})
         
@@ -577,10 +621,66 @@ async def razorpay_webhook(
                 refund.processed_at = datetime.now(UTC)
                 db.commit()
         
+        event_record.status = "processed"
+        event_record.processed_at = datetime.utcnow()
+        db.commit()
+
         return {"success": True}
         
     except HTTPException:
+        if event_record is not None:
+            event_record.status = "failed"
+            event_record.error_message = "HTTP error while processing webhook"
+            db.commit()
         raise
     except Exception as e:
+        if event_record is not None:
+            event_record.status = "failed"
+            event_record.error_message = str(e)[:500]
+            db.commit()
         logger.error(f"Error processing webhook: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error processing webhook")
+
+
+@router.get("/admin/webhook-events", response_model=list[BillingWebhookEventResponse])
+async def list_billing_webhook_events(
+    provider: Optional[str] = None,
+    status_filter: Optional[str] = None,
+    event_type: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    admin=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin-only listing endpoint for webhook observability and troubleshooting."""
+    query = db.query(BillingWebhookEvent)
+
+    if provider:
+        query = query.filter(BillingWebhookEvent.provider == provider)
+    if status_filter:
+        query = query.filter(BillingWebhookEvent.status == status_filter)
+    if event_type:
+        query = query.filter(BillingWebhookEvent.event_type == event_type)
+
+    rows = (
+        query
+        .order_by(BillingWebhookEvent.received_at.desc())
+        .offset(max(offset, 0))
+        .limit(min(max(limit, 1), 500))
+        .all()
+    )
+
+    return [
+        BillingWebhookEventResponse(
+            id=row.id,
+            provider=row.provider,
+            event_id=row.event_id,
+            event_type=row.event_type,
+            idempotency_key=row.idempotency_key,
+            status=row.status,
+            received_at=row.received_at.isoformat(),
+            processed_at=row.processed_at.isoformat() if row.processed_at else None,
+            error_message=row.error_message,
+        )
+        for row in rows
+    ]

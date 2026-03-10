@@ -20,12 +20,25 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Fix unique constraint on gurus.user_id."""
-    # Use batch mode for SQLite to add unique constraint
-    with op.batch_alter_table('gurus', schema=None) as batch_op:
-        batch_op.create_unique_constraint('uq_gurus_user_id', ['user_id'])
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    tables = set(inspector.get_table_names())
+    if 'gurus' not in tables:
+        return
+
+    existing_indexes = {idx.get('name') for idx in inspector.get_indexes('gurus')}
+    if 'uq_gurus_user_id' not in existing_indexes:
+        op.create_index('uq_gurus_user_id', 'gurus', ['user_id'], unique=True)
 
 
 def downgrade() -> None:
     """Remove unique constraint on gurus.user_id."""
-    with op.batch_alter_table('gurus', schema=None) as batch_op:
-        batch_op.drop_constraint('uq_gurus_user_id', type_='unique')
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    tables = set(inspector.get_table_names())
+    if 'gurus' not in tables:
+        return
+
+    existing_indexes = {idx.get('name') for idx in inspector.get_indexes('gurus')}
+    if 'uq_gurus_user_id' in existing_indexes:
+        op.drop_index('uq_gurus_user_id', table_name='gurus')

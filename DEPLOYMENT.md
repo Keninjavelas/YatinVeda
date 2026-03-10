@@ -7,7 +7,7 @@
 | Service | Port | Notes |
 |---------|------|-------|
 | nginx (proxy) | 80, 443 | HTTPS termination |
-| backend (FastAPI) | 8000 (internal) | 4 uvicorn workers |
+| backend (FastAPI) | 8000 (internal) | 4 uvicorn workers, auto-migrates on startup |
 | frontend (Next.js) | 3000 (internal) | |
 | postgres | 5432 (internal) | PostgreSQL 16 |
 | redis | 6379 (internal) | Rate limit + cache |
@@ -82,7 +82,9 @@ docker compose ps
 
 ## Step 4 – Run Database Migrations
 
-**Must be done on first start and after any schema changes:**
+Migrations are now run automatically by backend startup (`RUN_MIGRATIONS=true`).
+
+Manual migration command (optional, for emergency/manual operation):
 
 ```powershell
 docker compose exec backend alembic upgrade head
@@ -94,7 +96,7 @@ docker compose exec backend alembic upgrade head
 
 ```powershell
 # Backend health
-Invoke-WebRequest http://localhost:8000/health -UseBasicParsing
+Invoke-WebRequest https://localhost/api/v1/health -UseBasicParsing
 
 # API docs
 Invoke-WebRequest http://localhost:8000/docs -UseBasicParsing
@@ -152,6 +154,9 @@ docker compose restart backend
 # View backend logs
 docker compose logs -f backend
 
+# Show migration/startup logs
+docker compose logs -f backend | Select-String -Pattern "entrypoint|alembic|Starting Uvicorn"
+
 # Run backend tests
 docker compose exec backend pytest -v --tb=short
 
@@ -186,3 +191,4 @@ The current setup handles 500–2000 users on a single server. To go further:
 - [ ] `BACKEND_CORS_ORIGINS` set to your specific domain (not `*`)
 - [ ] Firewall: only ports 80 and 443 open to public (5432, 6379, 8000, 3000 internal only)
 - [ ] `REFRESH_TOKEN_BINDING=true`
+- [ ] `RUN_MIGRATIONS=true` (or managed migration process in CI/CD)

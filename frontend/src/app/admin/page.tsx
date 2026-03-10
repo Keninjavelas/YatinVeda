@@ -2,10 +2,12 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Shield, Users, BookOpen, MessageSquare, BarChart3, Eye, UserCog, AlertTriangle, UserCheck, Clock, CheckCircle, XCircle, FileText, Award } from 'lucide-react'
 import { AuthGuard } from '@/components/auth-guard'
 import { useAuth } from '@/lib/auth-context'
 import { useToast } from '@/lib/toast-context'
+import { useI18n } from '@/lib/i18n'
 import { apiClient } from '@/lib/api-client'
 
 interface PendingPractitioner {
@@ -84,6 +86,7 @@ function AdminContent() {
   const [userDetails, setUserDetails] = useState<UserDetail | null>(null)
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null)
   const [adminActionError, setAdminActionError] = useState('')
+  const { t } = useI18n()
 
   const fetchData = useCallback(async () => {
     try {
@@ -272,6 +275,19 @@ function AdminContent() {
             <Shield className="w-10 h-10 text-yellow-400" />
             <h1 className="text-4xl font-bold text-white">Admin Dashboard</h1>
           </div>
+
+          <Link
+            href="/admin/certificate-alerts"
+            className="hidden md:inline-block rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700"
+          >
+            {t('admin_certificate_alerts', 'Certificate Alerts')}
+          </Link>
+          <Link
+            href="/admin/analytics"
+            className="hidden md:inline-block rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700"
+          >
+            {t('admin_advanced_analytics', 'Advanced Analytics')}
+          </Link>
           
           {/* Tab Navigation */}
           <div className="flex space-x-2 bg-slate-800/50 border border-slate-700 rounded-lg p-1">

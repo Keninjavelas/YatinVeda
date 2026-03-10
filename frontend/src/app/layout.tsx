@@ -6,6 +6,7 @@ import { ErrorBoundary } from '@/components/error-boundary'
 import { GlobalLoadingBar } from '@/components/loading-indicator'
 import Navbar from '@/components/navbar'
 import { Toaster } from 'sonner'
+import { I18nProvider } from '@/lib/i18n'
 
 export const metadata: Metadata = {
   title: 'YatinVeda - Vedic Astrology Platform',
@@ -22,12 +23,14 @@ export default function RootLayout({
       <body>
         <ErrorBoundary>
           <ToastProvider>
-            <AuthProvider>
-              <GlobalLoadingBar />
-              <Navbar />
-              {children}
-              <Toaster position="top-right" />
-            </AuthProvider>
+            <I18nProvider>
+              <AuthProvider>
+                <GlobalLoadingBar />
+                <Navbar />
+                {children}
+                <Toaster position="top-right" />
+              </AuthProvider>
+            </I18nProvider>
           </ToastProvider>
         </ErrorBoundary>
       </body>

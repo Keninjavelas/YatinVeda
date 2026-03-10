@@ -20,160 +20,131 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Add performance indexes to frequently queried columns."""
-    
-    # User queries - email/username lookups (already indexed in model, but ensuring)
-    # These are defined in the User model, so we skip them here
-    
-    # Guru queries - search by specialization, active status, rating
-    op.create_index('idx_gurus_is_active', 'gurus', ['is_active'])
-    op.create_index('idx_gurus_rating', 'gurus', ['rating'])
-    
-    # Booking queries - filter by user, guru, status, dates
-    op.create_index('idx_bookings_status', 'guru_bookings', ['status'])
-    op.create_index('idx_bookings_payment_status', 'guru_bookings', ['payment_status'])
-    op.create_index('idx_bookings_booking_date', 'guru_bookings', ['booking_date'])
-    op.create_index('idx_bookings_user_guru', 'guru_bookings', ['user_id', 'guru_id'])
-    
-    # Availability queries - filter by guru, date, availability
-    op.create_index('idx_availability_guru_date', 'guru_availability', ['guru_id', 'date'])
-    op.create_index('idx_availability_is_available', 'guru_availability', ['is_available'])
-    
-    # Payment queries - lookup by order_id, payment_id, status
-    op.create_index('idx_payments_status', 'payments', ['status'])
-    op.create_index('idx_payments_user_id', 'payments', ['user_id'])
-    op.create_index('idx_payments_created_at', 'payments', ['created_at'])
-    
-    # Wallet queries - lookup by user
-    # user_id already has unique constraint, which creates index
-    
-    # Wallet transaction queries - filter by wallet, type, date
-    op.create_index('idx_wallet_txn_wallet_id', 'wallet_transactions', ['wallet_id'])
-    op.create_index('idx_wallet_txn_type', 'wallet_transactions', ['transaction_type'])
-    op.create_index('idx_wallet_txn_created_at', 'wallet_transactions', ['created_at'])
-    
-    # Chart queries - filter by user, public status, primary
-    op.create_index('idx_charts_user_id', 'charts', ['user_id'])
-    op.create_index('idx_charts_is_public', 'charts', ['is_public'])
-    op.create_index('idx_charts_is_primary', 'charts', ['is_primary'])
-    
-    # Community post queries - filter by user, public, created date, tags
-    op.create_index('idx_posts_user_id', 'community_posts', ['user_id'])
-    op.create_index('idx_posts_is_public', 'community_posts', ['is_public'])
-    op.create_index('idx_posts_created_at', 'community_posts', ['created_at'])
-    op.create_index('idx_posts_post_type', 'community_posts', ['post_type'])
-    
-    # Comment queries - filter by post, user, parent
-    op.create_index('idx_comments_post_id', 'post_comments', ['post_id'])
-    op.create_index('idx_comments_user_id', 'post_comments', ['user_id'])
-    op.create_index('idx_comments_parent_id', 'post_comments', ['parent_comment_id'])
-    op.create_index('idx_comments_created_at', 'post_comments', ['created_at'])
-    
-    # Like queries - lookup by post/comment and user
-    op.create_index('idx_post_likes_post_user', 'post_likes', ['post_id', 'user_id'])
-    op.create_index('idx_comment_likes_comment_user', 'comment_likes', ['comment_id', 'user_id'])
-    
-    # Follow queries - lookup followers/following
-    op.create_index('idx_follows_follower', 'user_follows', ['follower_id'])
-    op.create_index('idx_follows_following', 'user_follows', ['following_id'])
-    op.create_index('idx_follows_pair', 'user_follows', ['follower_id', 'following_id'])
-    
-    # Event queries - filter by organizer, date, public status
-    op.create_index('idx_events_organizer', 'community_events', ['organizer_id'])
-    op.create_index('idx_events_event_date', 'community_events', ['event_date'])
-    op.create_index('idx_events_is_public', 'community_events', ['is_public'])
-    op.create_index('idx_events_event_type', 'community_events', ['event_type'])
-    
-    # Event registration queries - lookup by event and user
-    op.create_index('idx_event_reg_event_user', 'event_registrations', ['event_id', 'user_id'])
-    op.create_index('idx_event_reg_status', 'event_registrations', ['status'])
-    
-    # Notification queries - filter by user, read status, type
-    op.create_index('idx_notifications_user_id', 'notifications', ['user_id'])
-    op.create_index('idx_notifications_is_read', 'notifications', ['is_read'])
-    op.create_index('idx_notifications_type', 'notifications', ['notification_type'])
-    op.create_index('idx_notifications_created_at', 'notifications', ['created_at'])
-    
-    # Prescription queries - lookup by booking, guru, user
-    op.create_index('idx_prescriptions_booking', 'prescriptions', ['booking_id'])
-    op.create_index('idx_prescriptions_guru', 'prescriptions', ['guru_id'])
-    op.create_index('idx_prescriptions_user', 'prescriptions', ['user_id'])
-    
-    # Prescription reminder queries - filter by prescription, user, sent status, date
-    op.create_index('idx_reminders_prescription', 'prescription_reminders', ['prescription_id'])
-    op.create_index('idx_reminders_user', 'prescription_reminders', ['user_id'])
-    op.create_index('idx_reminders_is_sent', 'prescription_reminders', ['is_sent'])
-    op.create_index('idx_reminders_reminder_date', 'prescription_reminders', ['reminder_date'])
-    
-    # Chat history queries - filter by user, date
-    op.create_index('idx_chat_user_id', 'chat_history', ['user_id'])
-    op.create_index('idx_chat_created_at', 'chat_history', ['created_at'])
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    tables = set(inspector.get_table_names())
+
+    indexes_to_create = [
+        ('idx_gurus_is_active', 'gurus', ['is_active']),
+        ('idx_gurus_rating', 'gurus', ['rating']),
+        ('idx_bookings_status', 'guru_bookings', ['status']),
+        ('idx_bookings_payment_status', 'guru_bookings', ['payment_status']),
+        ('idx_bookings_booking_date', 'guru_bookings', ['booking_date']),
+        ('idx_bookings_user_guru', 'guru_bookings', ['user_id', 'guru_id']),
+        ('idx_availability_guru_date', 'guru_availability', ['guru_id', 'date']),
+        ('idx_availability_is_available', 'guru_availability', ['is_available']),
+        ('idx_payments_status', 'payments', ['status']),
+        ('idx_payments_user_id', 'payments', ['user_id']),
+        ('idx_payments_created_at', 'payments', ['created_at']),
+        ('idx_wallet_txn_wallet_id', 'wallet_transactions', ['wallet_id']),
+        ('idx_wallet_txn_type', 'wallet_transactions', ['transaction_type']),
+        ('idx_wallet_txn_created_at', 'wallet_transactions', ['created_at']),
+        ('idx_charts_user_id', 'charts', ['user_id']),
+        ('idx_charts_is_public', 'charts', ['is_public']),
+        ('idx_charts_is_primary', 'charts', ['is_primary']),
+        ('idx_posts_user_id', 'community_posts', ['user_id']),
+        ('idx_posts_is_public', 'community_posts', ['is_public']),
+        ('idx_posts_created_at', 'community_posts', ['created_at']),
+        ('idx_posts_post_type', 'community_posts', ['post_type']),
+        ('idx_comments_post_id', 'post_comments', ['post_id']),
+        ('idx_comments_user_id', 'post_comments', ['user_id']),
+        ('idx_comments_parent_id', 'post_comments', ['parent_comment_id']),
+        ('idx_comments_created_at', 'post_comments', ['created_at']),
+        ('idx_post_likes_post_user', 'post_likes', ['post_id', 'user_id']),
+        ('idx_comment_likes_comment_user', 'comment_likes', ['comment_id', 'user_id']),
+        ('idx_follows_follower', 'user_follows', ['follower_id']),
+        ('idx_follows_following', 'user_follows', ['following_id']),
+        ('idx_follows_pair', 'user_follows', ['follower_id', 'following_id']),
+        ('idx_events_organizer', 'community_events', ['organizer_id']),
+        ('idx_events_event_date', 'community_events', ['event_date']),
+        ('idx_events_is_public', 'community_events', ['is_public']),
+        ('idx_events_event_type', 'community_events', ['event_type']),
+        ('idx_event_reg_event_user', 'event_registrations', ['event_id', 'user_id']),
+        ('idx_event_reg_status', 'event_registrations', ['status']),
+        ('idx_notifications_user_id', 'notifications', ['user_id']),
+        ('idx_notifications_is_read', 'notifications', ['is_read']),
+        ('idx_notifications_type', 'notifications', ['notification_type']),
+        ('idx_notifications_created_at', 'notifications', ['created_at']),
+        ('idx_prescriptions_booking', 'prescriptions', ['booking_id']),
+        ('idx_prescriptions_guru', 'prescriptions', ['guru_id']),
+        ('idx_prescriptions_user', 'prescriptions', ['user_id']),
+        ('idx_reminders_prescription', 'prescription_reminders', ['prescription_id']),
+        ('idx_reminders_user', 'prescription_reminders', ['user_id']),
+        ('idx_reminders_is_sent', 'prescription_reminders', ['is_sent']),
+        ('idx_reminders_reminder_date', 'prescription_reminders', ['reminder_date']),
+        ('idx_chat_user_id', 'chat_history', ['user_id']),
+        ('idx_chat_created_at', 'chat_history', ['created_at']),
+    ]
+
+    for name, table, columns in indexes_to_create:
+        if table not in tables:
+            continue
+        existing = {idx.get('name') for idx in inspector.get_indexes(table)}
+        if name not in existing:
+            op.create_index(name, table, columns)
 
 
 def downgrade() -> None:
     """Remove performance indexes."""
-    
-    # Drop all indexes in reverse order
-    op.drop_index('idx_chat_created_at', 'chat_history')
-    op.drop_index('idx_chat_user_id', 'chat_history')
-    
-    op.drop_index('idx_reminders_reminder_date', 'prescription_reminders')
-    op.drop_index('idx_reminders_is_sent', 'prescription_reminders')
-    op.drop_index('idx_reminders_user', 'prescription_reminders')
-    op.drop_index('idx_reminders_prescription', 'prescription_reminders')
-    
-    op.drop_index('idx_prescriptions_user', 'prescriptions')
-    op.drop_index('idx_prescriptions_guru', 'prescriptions')
-    op.drop_index('idx_prescriptions_booking', 'prescriptions')
-    
-    op.drop_index('idx_notifications_created_at', 'notifications')
-    op.drop_index('idx_notifications_type', 'notifications')
-    op.drop_index('idx_notifications_is_read', 'notifications')
-    op.drop_index('idx_notifications_user_id', 'notifications')
-    
-    op.drop_index('idx_event_reg_status', 'event_registrations')
-    op.drop_index('idx_event_reg_event_user', 'event_registrations')
-    
-    op.drop_index('idx_events_event_type', 'community_events')
-    op.drop_index('idx_events_is_public', 'community_events')
-    op.drop_index('idx_events_event_date', 'community_events')
-    op.drop_index('idx_events_organizer', 'community_events')
-    
-    op.drop_index('idx_follows_pair', 'user_follows')
-    op.drop_index('idx_follows_following', 'user_follows')
-    op.drop_index('idx_follows_follower', 'user_follows')
-    
-    op.drop_index('idx_comment_likes_comment_user', 'comment_likes')
-    op.drop_index('idx_post_likes_post_user', 'post_likes')
-    
-    op.drop_index('idx_comments_created_at', 'post_comments')
-    op.drop_index('idx_comments_parent_id', 'post_comments')
-    op.drop_index('idx_comments_user_id', 'post_comments')
-    op.drop_index('idx_comments_post_id', 'post_comments')
-    
-    op.drop_index('idx_posts_post_type', 'community_posts')
-    op.drop_index('idx_posts_created_at', 'community_posts')
-    op.drop_index('idx_posts_is_public', 'community_posts')
-    op.drop_index('idx_posts_user_id', 'community_posts')
-    
-    op.drop_index('idx_charts_is_primary', 'charts')
-    op.drop_index('idx_charts_is_public', 'charts')
-    op.drop_index('idx_charts_user_id', 'charts')
-    
-    op.drop_index('idx_wallet_txn_created_at', 'wallet_transactions')
-    op.drop_index('idx_wallet_txn_type', 'wallet_transactions')
-    op.drop_index('idx_wallet_txn_wallet_id', 'wallet_transactions')
-    
-    op.drop_index('idx_payments_created_at', 'payments')
-    op.drop_index('idx_payments_user_id', 'payments')
-    op.drop_index('idx_payments_status', 'payments')
-    
-    op.drop_index('idx_availability_is_available', 'guru_availability')
-    op.drop_index('idx_availability_guru_date', 'guru_availability')
-    
-    op.drop_index('idx_bookings_user_guru', 'guru_bookings')
-    op.drop_index('idx_bookings_booking_date', 'guru_bookings')
-    op.drop_index('idx_bookings_payment_status', 'guru_bookings')
-    op.drop_index('idx_bookings_status', 'guru_bookings')
-    
-    op.drop_index('idx_gurus_rating', 'gurus')
-    op.drop_index('idx_gurus_is_active', 'gurus')
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    tables = set(inspector.get_table_names())
+
+    indexes_to_drop = [
+        ('idx_chat_created_at', 'chat_history'),
+        ('idx_chat_user_id', 'chat_history'),
+        ('idx_reminders_reminder_date', 'prescription_reminders'),
+        ('idx_reminders_is_sent', 'prescription_reminders'),
+        ('idx_reminders_user', 'prescription_reminders'),
+        ('idx_reminders_prescription', 'prescription_reminders'),
+        ('idx_prescriptions_user', 'prescriptions'),
+        ('idx_prescriptions_guru', 'prescriptions'),
+        ('idx_prescriptions_booking', 'prescriptions'),
+        ('idx_notifications_created_at', 'notifications'),
+        ('idx_notifications_type', 'notifications'),
+        ('idx_notifications_is_read', 'notifications'),
+        ('idx_notifications_user_id', 'notifications'),
+        ('idx_event_reg_status', 'event_registrations'),
+        ('idx_event_reg_event_user', 'event_registrations'),
+        ('idx_events_event_type', 'community_events'),
+        ('idx_events_is_public', 'community_events'),
+        ('idx_events_event_date', 'community_events'),
+        ('idx_events_organizer', 'community_events'),
+        ('idx_follows_pair', 'user_follows'),
+        ('idx_follows_following', 'user_follows'),
+        ('idx_follows_follower', 'user_follows'),
+        ('idx_comment_likes_comment_user', 'comment_likes'),
+        ('idx_post_likes_post_user', 'post_likes'),
+        ('idx_comments_created_at', 'post_comments'),
+        ('idx_comments_parent_id', 'post_comments'),
+        ('idx_comments_user_id', 'post_comments'),
+        ('idx_comments_post_id', 'post_comments'),
+        ('idx_posts_post_type', 'community_posts'),
+        ('idx_posts_created_at', 'community_posts'),
+        ('idx_posts_is_public', 'community_posts'),
+        ('idx_posts_user_id', 'community_posts'),
+        ('idx_charts_is_primary', 'charts'),
+        ('idx_charts_is_public', 'charts'),
+        ('idx_charts_user_id', 'charts'),
+        ('idx_wallet_txn_created_at', 'wallet_transactions'),
+        ('idx_wallet_txn_type', 'wallet_transactions'),
+        ('idx_wallet_txn_wallet_id', 'wallet_transactions'),
+        ('idx_payments_created_at', 'payments'),
+        ('idx_payments_user_id', 'payments'),
+        ('idx_payments_status', 'payments'),
+        ('idx_availability_is_available', 'guru_availability'),
+        ('idx_availability_guru_date', 'guru_availability'),
+        ('idx_bookings_user_guru', 'guru_bookings'),
+        ('idx_bookings_booking_date', 'guru_bookings'),
+        ('idx_bookings_payment_status', 'guru_bookings'),
+        ('idx_bookings_status', 'guru_bookings'),
+        ('idx_gurus_rating', 'gurus'),
+        ('idx_gurus_is_active', 'gurus'),
+    ]
+
+    for name, table in indexes_to_drop:
+        if table not in tables:
+            continue
+        existing = {idx.get('name') for idx in inspector.get_indexes(table)}
+        if name in existing:
+            op.drop_index(name, table)
