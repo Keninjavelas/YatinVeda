@@ -43,7 +43,7 @@ redis==5.0.1
 aiofiles==23.2.0
 
 # OpenTelemetry tracing (optional – for observability)
-opentelemetry-api==1.21.0
+opentelemetry-api==1.40.0
 opentelemetry-sdk==1.21.0
 opentelemetry-instrumentation-fastapi==0.42b0
 opentelemetry-instrumentation-sqlalchemy==0.42b0
