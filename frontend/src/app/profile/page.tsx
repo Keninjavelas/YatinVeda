@@ -84,9 +84,9 @@ function ProfileContent() {
       setIsEditing(false)
       // Refresh user data
       window.location.reload()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to update profile:', error)
-      showToast(error?.message || 'Failed to update profile', 'error')
+      showToast(error instanceof Error ? error.message : 'Failed to update profile', 'error')
     } finally {
       setLoading(false)
     }
@@ -123,9 +123,9 @@ function ProfileContent() {
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to change password:', error)
-      showToast(error?.message || 'Failed to change password', 'error')
+      showToast(error instanceof Error ? error.message : 'Failed to change password', 'error')
     } finally {
       setChangingPassword(false)
     }
@@ -148,13 +148,13 @@ function ProfileContent() {
           password: deletePassword,
           confirm: true
         })
-      } as any)
+      })
       showToast('Account deleted successfully', 'success')
       // Logout and redirect
       window.location.href = '/login'
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to delete account:', error)
-      showToast(error?.message || 'Failed to delete account', 'error')
+      showToast(error instanceof Error ? error.message : 'Failed to delete account', 'error')
     } finally {
       setDeletingAccount(false)
     }

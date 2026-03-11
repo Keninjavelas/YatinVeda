@@ -260,7 +260,8 @@ Always ground your responses in authentic Vedic astrology traditions while being
                 "prompt": full_prompt,
                 "stream": False,
                 "options": {"temperature": 0.7}
-            }
+            },
+            timeout=30
         )
         
         if response.status_code == 200:

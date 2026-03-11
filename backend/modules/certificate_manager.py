@@ -808,6 +808,31 @@ async def initialize_certificates():
                 raise
 
 
+async def _alert_cert_renewal_failure(domain: str, error_message: str) -> None:
+    """Send a security alert when certificate renewal fails."""
+    try:
+        from middleware.security_monitor import get_security_monitor, ThreatAlert, SecuritySeverity
+        import uuid
+
+        monitor = get_security_monitor()
+        now = datetime.utcnow()
+        alert = ThreatAlert(
+            id=str(uuid.uuid4()),
+            alert_type="certificate_renewal_failure",
+            severity=SecuritySeverity.HIGH,
+            description=f"Certificate renewal failed for {domain}: {error_message}",
+            affected_ips=[],
+            event_count=1,
+            time_window=timedelta(seconds=0),
+            first_seen=now,
+            last_seen=now,
+            recommended_action="Manually renew the certificate or check ACME provider connectivity",
+        )
+        await monitor._send_alert(alert)
+    except Exception as e:
+        logger.error(f"Failed to send cert renewal alert for {domain}: {e}")
+
+
 async def check_and_renew_certificates():
     """Check and renew certificates that are expiring"""
     manager = get_certificate_manager()
@@ -829,11 +854,11 @@ async def check_and_renew_certificates():
                 else:
                     logger.error(f"Failed to renew certificate for {domain}: {result.error_message}")
                     
-                    # TODO: Send alert to administrators
-                    # This would integrate with the Security Monitor for alerting
+                    await _alert_cert_renewal_failure(domain, result.error_message)
                     
             except Exception as e:
                 logger.error(f"Error renewing certificate for {domain}: {str(e)}")
+                await _alert_cert_renewal_failure(domain, str(e))
                 
     except Exception as e:
         logger.error(f"Error checking certificate renewals: {str(e)}")

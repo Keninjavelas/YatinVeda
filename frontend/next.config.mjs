@@ -1,4 +1,7 @@
 /** @type {import('next').NextConfig} */
+
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+
 const nextConfig = {
   reactStrictMode: true,
   async headers() {
@@ -38,11 +41,11 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://api.dicebear.com",
+              "script-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://api.dicebear.com",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https: blob:",
               "font-src 'self' data:",
-              "connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 https://api.dicebear.com",
+              `connect-src 'self' ${apiBaseUrl} https://api.dicebear.com`,
               "frame-src 'self' https://api.razorpay.com",
               "object-src 'none'",
               "base-uri 'self'",

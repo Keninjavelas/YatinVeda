@@ -135,7 +135,8 @@ class CurrencyService:
         url = f"https://openexchangerates.org/api/latest.json?app_id={self.api_key}"
         
         try:
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url) as response:
                     if response.status == 200:
                         data = await response.json()
@@ -162,7 +163,8 @@ class CurrencyService:
         url = f"https://api.currencyapi.com/v3/latest?apikey={self.api_key}&base_currency={self.BASE_CURRENCY}"
         
         try:
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url) as response:
                     if response.status == 200:
                         data = await response.json()

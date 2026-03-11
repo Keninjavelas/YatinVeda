@@ -1,7 +1,14 @@
 'use client'
 
+interface ChartData {
+  houses?: Record<string, string[]>
+  planets?: Record<string, string>
+  ascendant?: string
+  [key: string]: unknown
+}
+
 interface SimpleKundliCanvasProps {
-  chartData: any
+  chartData: ChartData
 }
 
 export default function SimpleKundliCanvas({ chartData }: SimpleKundliCanvasProps) {

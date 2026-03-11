@@ -202,11 +202,12 @@ const MFASetup: React.FC<MFASetupProps> = ({ onComplete, onCancel }) => {
                 
                 {/* QR Code Display */}
                 <div className="flex justify-center bg-white p-4 rounded border border-gray-200">
-                  <img
+                  <Image
                     src={`data:image/png;base64,${setupData.qr_code}`}
                     alt="MFA QR Code"
                     width={200}
                     height={200}
+                    unoptimized
                     className="border-4 border-gray-200"
                   />
                 </div>

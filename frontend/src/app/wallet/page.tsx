@@ -56,7 +56,8 @@ function WalletContent() {
   useEffect(() => {
     fetchWalletBalance();
     fetchTransactions();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken]);
 
   const fetchWalletBalance = async () => {
     try {

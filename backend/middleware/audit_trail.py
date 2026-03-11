@@ -2,6 +2,7 @@
 
 Provides comprehensive audit logging for compliance, security, and debugging.
 Tracks CRUD operations with user context, request details, and change history.
+Persists entries to the database via the AuditLogEntry model.
 """
 
 from fastapi import Request, Response
@@ -30,15 +31,11 @@ class AuditAction(str, Enum):
 
 
 class AuditLog:
-    """In-memory audit log storage.
+    """Database-backed audit log storage.
     
-    For production, store in database table or external logging service.
+    Persists audit entries to the audit_log_entries table via SQLAlchemy.
+    Falls back to file logger if DB write fails.
     """
-    
-    def __init__(self):
-        """Initialize audit log storage."""
-        self._logs: List[Dict[str, Any]] = []
-        self._max_logs = 10000  # Keep last 10k logs in memory
     
     def add(
         self,
@@ -54,50 +51,44 @@ class AuditLog:
         status: str = "SUCCESS",
         error_message: Optional[str] = None,
     ):
-        """Add audit log entry.
-        
-        Args:
-            action: Type of action performed
-            resource_type: Type of resource (e.g., "User", "Prescription")
-            resource_id: ID of resource affected
-            user_id: ID of user performing action
-            user_email: Email of user performing action
-            ip_address: IP address of request
-            request_id: Correlation ID for request
-            changes: Dict of field changes (old_value -> new_value)
-            metadata: Additional contextual information
-            status: Status of operation (SUCCESS, FAILED)
-            error_message: Error message if operation failed
-        """
-        log_entry = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "action": action.value,
-            "resource_type": resource_type,
-            "resource_id": resource_id,
-            "user_id": user_id,
-            "user_email": user_email,
-            "ip_address": ip_address,
-            "request_id": request_id,
-            "changes": changes,
-            "metadata": metadata,
-            "status": status,
-            "error_message": error_message,
-        }
-        
-        self._logs.append(log_entry)
-        
-        # Keep only last N logs
-        if len(self._logs) > self._max_logs:
-            self._logs = self._logs[-self._max_logs:]
-        
-        # Log to application logger
+        """Add audit log entry to the database."""
+        # Always emit to application logger
         log_message = f"AUDIT: {action.value} {resource_type}"
         if resource_id:
             log_message += f" #{resource_id}"
         if user_email:
             log_message += f" by {user_email}"
-        
-        logger.info(log_message, extra=log_entry)
+        logger.info(log_message)
+
+        # Persist to database
+        try:
+            from database import SessionLocal
+            from models.database import AuditLogEntry
+
+            db = SessionLocal()
+            try:
+                entry = AuditLogEntry(
+                    action=action.value,
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    user_id=user_id,
+                    user_email=user_email,
+                    ip_address=ip_address,
+                    request_id=request_id,
+                    changes=changes,
+                    metadata_=metadata,
+                    status=status,
+                    error_message=error_message,
+                )
+                db.add(entry)
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.warning("Failed to persist audit log entry to DB", exc_info=True)
+            finally:
+                db.close()
+        except Exception:
+            logger.warning("Failed to obtain DB session for audit log", exc_info=True)
     
     def get_logs(
         self,
@@ -108,73 +99,86 @@ class AuditLog:
         end_date: Optional[datetime] = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
-        """Query audit logs with filters.
-        
-        Args:
-            user_id: Filter by user ID
-            resource_type: Filter by resource type
-            action: Filter by action type
-            start_date: Filter by start date
-            end_date: Filter by end date
-            limit: Maximum number of logs to return
-            
-        Returns:
-            List of matching audit log entries
-        """
-        filtered_logs = self._logs
-        
-        # Apply filters
-        if user_id is not None:
-            filtered_logs = [log for log in filtered_logs if log["user_id"] == user_id]
-        
-        if resource_type is not None:
-            filtered_logs = [log for log in filtered_logs if log["resource_type"] == resource_type]
-        
-        if action is not None:
-            filtered_logs = [log for log in filtered_logs if log["action"] == action.value]
-        
-        if start_date is not None:
-            start_iso = start_date.isoformat()
-            filtered_logs = [log for log in filtered_logs if log["timestamp"] >= start_iso]
-        
-        if end_date is not None:
-            end_iso = end_date.isoformat()
-            filtered_logs = [log for log in filtered_logs if log["timestamp"] <= end_iso]
-        
-        # Return most recent first, limited
-        return list(reversed(filtered_logs[-limit:]))
+        """Query audit logs from the database."""
+        try:
+            from database import SessionLocal
+            from models.database import AuditLogEntry
+
+            db = SessionLocal()
+            try:
+                query = db.query(AuditLogEntry)
+                if user_id is not None:
+                    query = query.filter(AuditLogEntry.user_id == user_id)
+                if resource_type is not None:
+                    query = query.filter(AuditLogEntry.resource_type == resource_type)
+                if action is not None:
+                    query = query.filter(AuditLogEntry.action == action.value)
+                if start_date is not None:
+                    query = query.filter(AuditLogEntry.timestamp >= start_date)
+                if end_date is not None:
+                    query = query.filter(AuditLogEntry.timestamp <= end_date)
+
+                rows = query.order_by(AuditLogEntry.timestamp.desc()).limit(limit).all()
+                return [
+                    {
+                        "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+                        "action": r.action,
+                        "resource_type": r.resource_type,
+                        "resource_id": r.resource_id,
+                        "user_id": r.user_id,
+                        "user_email": r.user_email,
+                        "ip_address": r.ip_address,
+                        "request_id": r.request_id,
+                        "changes": r.changes,
+                        "metadata": r.metadata_,
+                        "status": r.status,
+                        "error_message": r.error_message,
+                    }
+                    for r in rows
+                ]
+            finally:
+                db.close()
+        except Exception:
+            logger.warning("Failed to query audit logs from DB", exc_info=True)
+            return []
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get audit log statistics.
-        
-        Returns:
-            Dict with counts by action type, resource type, etc.
-        """
-        actions = {}
-        resources = {}
-        users = {}
-        
-        for log in self._logs:
-            # Count by action
-            action = log["action"]
-            actions[action] = actions.get(action, 0) + 1
-            
-            # Count by resource type
-            resource = log["resource_type"]
-            resources[resource] = resources.get(resource, 0) + 1
-            
-            # Count by user
-            user_id = log["user_id"]
-            if user_id:
-                users[user_id] = users.get(user_id, 0) + 1
-        
-        return {
-            "total_logs": len(self._logs),
-            "by_action": actions,
-            "by_resource": resources,
-            "unique_users": len(users),
-            "most_active_users": sorted(users.items(), key=lambda x: x[1], reverse=True)[:10],
-        }
+        """Get audit log statistics from the database."""
+        try:
+            from database import SessionLocal
+            from models.database import AuditLogEntry
+            from sqlalchemy import func
+
+            db = SessionLocal()
+            try:
+                total = db.query(func.count(AuditLogEntry.id)).scalar() or 0
+                actions = dict(
+                    db.query(AuditLogEntry.action, func.count(AuditLogEntry.id))
+                    .group_by(AuditLogEntry.action)
+                    .all()
+                )
+                resources = dict(
+                    db.query(AuditLogEntry.resource_type, func.count(AuditLogEntry.id))
+                    .group_by(AuditLogEntry.resource_type)
+                    .all()
+                )
+                unique_users = (
+                    db.query(func.count(func.distinct(AuditLogEntry.user_id)))
+                    .filter(AuditLogEntry.user_id.isnot(None))
+                    .scalar()
+                    or 0
+                )
+                return {
+                    "total_logs": total,
+                    "by_action": actions,
+                    "by_resource": resources,
+                    "unique_users": unique_users,
+                }
+            finally:
+                db.close()
+        except Exception:
+            logger.warning("Failed to get audit stats from DB", exc_info=True)
+            return {"total_logs": 0, "by_action": {}, "by_resource": {}, "unique_users": 0}
 
 
 # Global audit log instance

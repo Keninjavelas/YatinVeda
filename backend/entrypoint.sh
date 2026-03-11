@@ -3,6 +3,19 @@ set -eu
 
 echo "[entrypoint] Starting backend container"
 
+# ── Required env-var validation ──
+MISSING=""
+for VAR in DATABASE_URL SECRET_KEY; do
+  eval VAL=\${${VAR}:-}
+  if [ -z "$VAL" ]; then
+    MISSING="$MISSING $VAR"
+  fi
+done
+if [ -n "$MISSING" ]; then
+  echo "[entrypoint] ERROR: Missing required environment variables:$MISSING"
+  exit 1
+fi
+
 if [ "${WAIT_FOR_DB:-true}" = "true" ]; then
   echo "[entrypoint] Waiting for database readiness"
   ATTEMPTS=0

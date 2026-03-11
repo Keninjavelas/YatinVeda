@@ -105,27 +105,27 @@ YatinVeda is a production-ready, full-stack platform that bridges ancient Vedic 
 
 ### 🔴 High Priority
 
-- [ ] **Administrator Alert System** - Implement certificate expiry alerts to admin dashboard
-- [ ] **Frontend Test Coverage** - Expand Jest/React Testing Library test suite (currently backend-focused)
-- [ ] **PostgreSQL Migration** - Production deployment guide for PostgreSQL (currently using SQLite)
-- [ ] **WebSocket Support** - Real-time notifications and chat features
-- [ ] **Mobile Responsiveness** - Enhanced mobile UI/UX optimization
+- [x] **Administrator Alert System** - Certificate expiry alerts on admin dashboard
+- [x] **Frontend Test Coverage** - 70+ tests across 7 test files (auth, chat, community, websocket, dashboard, API features, practitioner)
+- [x] **PostgreSQL Migration** - Full production migration guide (`docs/guides/POSTGRESQL_MIGRATION_GUIDE.md`)
+- [x] **WebSocket Support** - Real-time notifications, chat rooms, typing indicators, broadcast, online tracking
+- [x] **Mobile Responsiveness** - Responsive typography, card grids, bottom sheets, safe-area, touch-friendly, print & reduced-motion support
 
 ### 🟡 Medium Priority
 
-- [ ] **Advanced Analytics Dashboard** - Practitioner performance metrics and insights
-- [ ] **Advanced Search** - Elasticsearch integration for faster queries
-- [ ] **Video Consultations** - WebRTC integration for online sessions
-- [ ] **Astrological Calculations** - Native chart calculation engine (currently relies on external data)
-- [ ] **Stripe Integration** - Add Stripe payment gateway for international markets
+- [x] **Advanced Analytics Dashboard** - Period-selector, stats cards, daily trends, booking & payment breakdowns
+- [x] **Advanced Search** - Elasticsearch integration with DB fallback, autocomplete, global search page
+- [x] **Video Consultations** - WebRTC signaling server, ICE/STUN/TURN config, in-call chat, mute toggle
+- [x] **Astrological Calculations** - Native Vedic engine with planetary positions, Nakshatras, Dasha periods, compatibility
+- [x] **Stripe Integration** - Checkout sessions, payment intents, refunds, webhook handling with mock mode
 
 ### 🟢 Nice to Have
 
-- [ ] **Mobile Apps** - React Native iOS/Android applications
-- [ ] **Kubernetes Deployment** - Production-grade k8s manifests (example provided)
-- [ ] **API Rate Limit Tiers** - Tiered pricing with different rate limits
-- [ ] **Social Media Integration** - Share charts and insights on social platforms
-- [ ] **Advanced Remedies** - Expanded remedy recommendations with tracking
+- [x] **Mobile Apps** - React Native / Expo scaffold with login, dashboard, chart, chat, community, profile screens
+- [x] **Kubernetes Deployment** - Full-stack manifests (backend, frontend, postgres, redis, monitoring, HPA, PDB, NetworkPolicy)
+- [x] **API Rate Limit Tiers** - 4 tiers (free/starter/pro/premium) with sliding-window rate limiting
+- [x] **Social Media Integration** - Share generation for Twitter, Facebook, WhatsApp, LinkedIn, email
+- [x] **Advanced Remedies** - Planet-based remedy engine with personalized recommendations, tracking plans, categories
 
 ### ✅ Completed Features
 

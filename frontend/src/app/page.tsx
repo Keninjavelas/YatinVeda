@@ -113,7 +113,7 @@ export default function Home() {
           </Link>
           
           <Link
-            href="/book-appointment"
+            href="/book-appointment-new"
             className="group bg-slate-800/50 rounded-lg p-6 text-center border border-transparent hover:border-green-500/40 hover:bg-slate-800/80 transition-all duration-200"
           >
             <h2 className="text-xl font-semibold text-white mb-2">Book Appointment 📅</h2>

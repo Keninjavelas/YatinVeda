@@ -666,3 +666,22 @@ class DataExportRequest(Base):
     error_message = Column(Text, nullable=True)
     
     user = relationship("User")
+
+
+class AuditLogEntry(Base):
+    """Persistent audit log for security and compliance tracking."""
+    __tablename__ = "audit_log_entries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True, nullable=False)
+    action = Column(String(20), nullable=False, index=True)
+    resource_type = Column(String(100), nullable=False, index=True)
+    resource_id = Column(String(100), nullable=True)
+    user_id = Column(Integer, nullable=True, index=True)
+    user_email = Column(String(255), nullable=True)
+    ip_address = Column(String(45), nullable=True)
+    request_id = Column(String(100), nullable=True)
+    changes = Column(JSON, nullable=True)
+    metadata_ = Column("metadata", JSON, nullable=True)
+    status = Column(String(20), default="SUCCESS", nullable=False)
+    error_message = Column(Text, nullable=True)

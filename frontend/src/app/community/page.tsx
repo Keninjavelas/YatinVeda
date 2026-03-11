@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import Image from 'next/image'
 import { useAuth } from '@/lib/auth-context'
 import { apiClient } from '@/lib/api-client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -222,11 +223,14 @@ export default function CommunityPage() {
         <p className="mb-4 whitespace-pre-wrap">{post.content}</p>
         
         {post.media_url && (
-          <div className="mb-4">
-            <img 
+          <div className="mb-4 relative w-full" style={{ minHeight: 200 }}>
+            <Image 
               src={post.media_url} 
               alt="Post media" 
-              className="rounded-lg max-w-full h-auto"
+              fill
+              sizes="(max-width: 768px) 100vw, 600px"
+              className="rounded-lg object-contain"
+              unoptimized
             />
           </div>
         )}

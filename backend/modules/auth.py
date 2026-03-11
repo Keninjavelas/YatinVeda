@@ -15,7 +15,18 @@ import logging
 import hashlib
 
 # Security configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "development-secret-please-change-in-production")
+_DEFAULT_SECRET = "development-secret-please-change-in-production"
+SECRET_KEY = os.getenv("SECRET_KEY", _DEFAULT_SECRET)
+
+# Block startup if the default secret is used outside of development
+_environment = os.getenv("ENVIRONMENT", "development")
+if _environment != "development" and SECRET_KEY == _DEFAULT_SECRET:
+    raise RuntimeError(
+        "FATAL: SECRET_KEY is set to the insecure default. "
+        "Set a strong, unique SECRET_KEY environment variable before running in "
+        f"{_environment} mode."
+    )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "14"))

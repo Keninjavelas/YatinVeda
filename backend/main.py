@@ -120,6 +120,7 @@ else:
 from api.v1 import (
     admin,
     auth,
+    calculations,
     chat,
     community,
     cookies,
@@ -131,14 +132,17 @@ from api.v1 import (
     practitioner,
     prescriptions,
     profile,
+    rate_limits,
+    remedies,
+    search,
     security,
     security_testing,
+    social_share,
+    stripe_payments,
     user_charts,
+    video_consult,
     websocket,
 )
-
-# Keep this explicit for compatibility with startup wiring that references it.
-advanced_rate_limiter = None
 
 # Create FastAPI application
 app = FastAPI(
@@ -180,16 +184,6 @@ try:
     logger.info("Prometheus metrics registered successfully")
 except Exception as e:
     logger.error(f"Failed to register Prometheus metrics: {e}")
-
-# Add advanced rate limiting middleware (should be early to catch abuse)
-if advanced_rate_limiter and not _testing:
-    app.add_middleware(
-        RateLimitMiddleware,
-        rate_limiter=advanced_rate_limiter,
-        enabled=True,
-        skip_paths=["/health", "/metrics", "/docs", "/openapi.json", "/", "/api/v1/health"]
-    )
-    logger.info("Advanced rate limiting middleware enabled")
 
 # Add security headers middleware (should be early to ensure all responses have security headers)
 environment = os.getenv("ENVIRONMENT", "development")
@@ -241,8 +235,10 @@ if csrf_protection_enabled and not _testing:
     except Exception as e:
         logger.error(f"Failed to initialize CSRF protection: {str(e)}")
         if environment == "production":
-            logger.error("CSRF protection is required in production")
-            # In production, we might want to fail startup, but for now we'll continue
+            raise RuntimeError(
+                "CSRF protection is required in production but failed to initialize: "
+                f"{str(e)}"
+            )
         else:
             logger.info("Continuing without CSRF protection in development mode")
 
@@ -279,6 +275,13 @@ app.include_router(security.router, prefix="/api/v1", tags=["Security Monitoring
 app.include_router(security_testing.router, prefix="/api/v1", tags=["Security Testing"])
 app.include_router(gdpr.router, prefix="/api/v1/gdpr", tags=["GDPR & Privacy"])
 app.include_router(cookies.router, prefix="/api/v1/cookies", tags=["Cookie Consent"])
+app.include_router(stripe_payments.router, prefix="/api/v1", tags=["Stripe Payments"])
+app.include_router(search.router, prefix="/api/v1", tags=["Search"])
+app.include_router(calculations.router, prefix="/api/v1", tags=["Astrology Calculations"])
+app.include_router(remedies.router, prefix="/api/v1", tags=["Remedies"])
+app.include_router(rate_limits.router, prefix="/api/v1", tags=["Rate Limits"])
+app.include_router(social_share.router, prefix="/api/v1", tags=["Social Sharing"])
+app.include_router(video_consult.router, prefix="/api/v1", tags=["Video Consultations"])
 
 # Add CSP violation reporting endpoint
 @app.post("/api/v1/security/csp-report")

@@ -34,7 +34,7 @@ export default function Navbar() {
     { href: '/dashboard', label: t('nav_dashboard', 'Dashboard'), icon: LayoutDashboard },
     { href: '/chat', label: t('nav_ai_assistant', 'AI Assistant'), icon: MessageSquare },
     { href: '/community', label: t('nav_community', 'Community'), icon: Users },
-    { href: '/book-appointment', label: t('nav_book_session', 'Book Session'), icon: Calendar },
+    { href: '/book-appointment-new', label: t('nav_book_session', 'Book Session'), icon: Calendar },
     { href: '/prescriptions', label: t('nav_prescriptions', 'Prescriptions'), icon: Book },
     { href: '/profile', label: t('nav_profile', 'Profile'), icon: User },
     { href: '/video-consult', label: t('nav_video_consult', 'Video Consult'), icon: Calendar },

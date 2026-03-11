@@ -25,7 +25,15 @@ COPY backend/ /app/
 # Container startup script (wait for DB, migrate, start app)
 RUN chmod +x /app/entrypoint.sh
 
+# Create non-root user and hand off ownership
+RUN useradd --create-home --shell /bin/bash appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:8000/api/v1/health || exit 1
 
 # Default command (overridden by docker-compose.yml)
 CMD ["/app/entrypoint.sh"]

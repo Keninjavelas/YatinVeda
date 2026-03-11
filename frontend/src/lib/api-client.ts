@@ -48,15 +48,15 @@ interface TokenStorage {
 interface ApiError extends Error {
   status?: number
   code?: string
-  details?: any
+  details?: unknown
 }
 
 class ApiClientError extends Error implements ApiError {
   status?: number
   code?: string
-  details?: any
+  details?: unknown
 
-  constructor(message: string, status?: number, code?: string, details?: any) {
+  constructor(message: string, status?: number, code?: string, details?: unknown) {
     super(message)
     this.name = 'ApiClientError'
     this.status = status
@@ -76,42 +76,13 @@ let tokens: TokenStorage = {
 let isRefreshing = false
 let refreshPromise: Promise<boolean> | null = null
 
-export function setTokens(access: string, refresh?: string, csrf?: string) {
+export function setTokens(access: string, _refresh?: string, csrf?: string) {
   tokens.accessToken = access
-  // Only store refresh token if explicitly provided (fallback for non-cookie auth)
-  if (refresh) tokens.refreshToken = refresh
+  // Refresh token lives exclusively in httpOnly cookie — never stored in JS
   if (csrf) tokens.csrfToken = csrf
-  
-  // Persist to sessionStorage for page refresh
-  if (typeof window !== 'undefined') {
-    try {
-      sessionStorage.setItem('access_token', access)
-      // Only store refresh token in sessionStorage if provided (not recommended for security)
-      if (refresh) sessionStorage.setItem('refresh_token', refresh)
-      if (csrf) sessionStorage.setItem('csrf_token', csrf)
-    } catch (error) {
-      console.warn('Failed to store tokens in sessionStorage:', error)
-    }
-  }
 }
 
 export function getTokens(): TokenStorage {
-  // Restore from sessionStorage if in-memory tokens are missing
-  if (typeof window !== 'undefined') {
-    try {
-      if (!tokens.accessToken) {
-        tokens.accessToken = sessionStorage.getItem('access_token')
-      }
-      if (!tokens.refreshToken) {
-        tokens.refreshToken = sessionStorage.getItem('refresh_token')
-      }
-      if (!tokens.csrfToken) {
-        tokens.csrfToken = sessionStorage.getItem('csrf_token')
-      }
-    } catch (error) {
-      console.warn('Failed to retrieve tokens from sessionStorage:', error)
-    }
-  }
   return tokens
 }
 
@@ -119,16 +90,6 @@ export function clearTokens() {
   tokens.accessToken = null
   tokens.refreshToken = null
   tokens.csrfToken = null
-  
-  if (typeof window !== 'undefined') {
-    try {
-      sessionStorage.removeItem('access_token')
-      sessionStorage.removeItem('refresh_token')
-      sessionStorage.removeItem('csrf_token')
-    } catch (error) {
-      console.warn('Failed to clear tokens from sessionStorage:', error)
-    }
-  }
 }
 
 async function refreshAccessToken(): Promise<boolean> {
@@ -306,7 +267,7 @@ async function requestWithRetry<T>(
 
       if (!response.ok) {
         let errorMessage = `API Error: ${response.status}`
-        let errorDetails: any = null
+        let errorDetails: unknown = null
         
         try {
           const errorData = await response.json()
@@ -549,6 +510,7 @@ export function getAuthStatus() {
     isAuthenticated: !!accessToken,
     hasAccessToken: !!accessToken,
     hasCsrfToken: !!csrfToken,
+    csrfToken,
     isRefreshing
   }
 }

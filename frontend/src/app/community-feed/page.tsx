@@ -201,7 +201,7 @@ function CommunityFeedContent() {
 
   useEffect(() => {
     fetchPosts(true)
-  }, [feedType]) // Re-fetch when feed type changes
+  }, [feedType, fetchPosts]) // Re-fetch when feed type changes
 
   // Infinite scroll observer
   useEffect(() => {

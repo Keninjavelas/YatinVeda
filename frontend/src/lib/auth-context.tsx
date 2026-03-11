@@ -18,10 +18,10 @@ interface User {
     bio: string
     specializations: string[]
     experience_years: number
-    certification_details: any
+    certification_details: Record<string, unknown>
     languages: string[]
     price_per_hour: number
-    availability_schedule: any
+    availability_schedule: Record<string, unknown>
     verified_at: string | null
     rating: number
     total_sessions: number
@@ -58,20 +58,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsubscribe
   }, [])
 
-  // Initialize auth state from sessionStorage
+  // Initialize auth state via silent token refresh (httpOnly cookie)
   useEffect(() => {
     const initializeAuth = async () => {
-      const storedToken = typeof window !== 'undefined' ? sessionStorage.getItem('access_token') : null
-      const storedCsrf = typeof window !== 'undefined' ? sessionStorage.getItem('csrf_token') : null
-      
-      if (storedToken) {
-        setAccessToken(storedToken)
-        setCsrfToken(storedCsrf)
-        // Fetch user profile
-        await fetchUserProfile(storedToken)
-      } else {
-        setIsLoading(false)
+      try {
+        // Attempt silent refresh using the httpOnly refresh_token cookie
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/v1/auth/refresh`,
+          { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } }
+        )
+
+        if (response.ok) {
+          const data = await response.json()
+          if (data.access_token) {
+            const csrf = response.headers.get('x-csrf-token')
+            const { setTokens: setApiTokens } = await import('./api-client')
+            setApiTokens(data.access_token, undefined, csrf || undefined)
+            setAccessToken(data.access_token)
+            setCsrfToken(csrf)
+            await fetchUserProfile(data.access_token)
+            return
+          }
+        }
+      } catch {
+        // No valid session — fall through
       }
+      setIsLoading(false)
     }
 
     initializeAuth()
@@ -104,11 +116,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await apiLogin(email, password)
       const newAccessToken = data.access_token
       
-      // Get auth status to extract CSRF token
+      // Get auth status to extract CSRF token (now in-memory only)
       const authStatus = getAuthStatus()
       
       setAccessToken(newAccessToken)
-      setCsrfToken(authStatus.hasCsrfToken ? sessionStorage.getItem('csrf_token') : null)
+      setCsrfToken(authStatus.hasCsrfToken ? authStatus.csrfToken : null)
 
       // Fetch user profile
       await fetchUserProfile(newAccessToken)
@@ -137,14 +149,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (csrf) {
       setCsrfToken(csrf)
     }
-    // The API client handles sessionStorage persistence
+    // The API client handles in-memory token persistence
   }
 
   const clearAuth = () => {
     setUser(null)
     setAccessToken(null)
     setCsrfToken(null)
-    // Clear sessionStorage is handled by API client
+    // Token cleanup is handled by API client
   }
 
   return (
