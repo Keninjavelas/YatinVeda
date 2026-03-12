@@ -499,7 +499,7 @@ async def get_csrf_token(
             event_type=SecurityEventType.ADMIN_ACTION,
             details={
                 "action": "csrf_token_generation",
-                "user": current_user.email,
+                "user": current_user.username,
                 "token_length": len(csrf_token)
             },
             severity=SecuritySeverity.LOW,

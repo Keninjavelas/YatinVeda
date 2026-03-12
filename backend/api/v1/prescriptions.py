@@ -174,7 +174,7 @@ async def create_prescription(
         guru_user = db.query(User).filter(User.id == guru.user_id).first()
         guru_data = {
             "name": guru.name,
-            "specialization": guru.astrology_system or "Vedic Astrology",
+            "specialization": (guru.specializations[0] if guru.specializations else "Vedic Astrology") if guru else "Vedic Astrology",
             "email": guru_user.email if guru_user else "N/A"
         }
         
@@ -304,7 +304,7 @@ async def get_prescription(
         "created_at": prescription.created_at,
         "guru": {
             "name": guru_obj.name if guru_obj else "N/A",
-            "specialization": guru_obj.astrology_system if guru_obj else None
+            "specialization": (guru_obj.specializations[0] if guru_obj.specializations else None) if guru_obj else None
         }
     }
 
@@ -591,6 +591,6 @@ async def verify_prescription(
             "title": prescription.title,
             "created_at": prescription.created_at,
             "consultant": guru.name if guru else "N/A",
-            "specialization": guru.astrology_system if guru else None
+            "specialization": (guru.specializations[0] if guru.specializations else None) if guru else None
         }
     }

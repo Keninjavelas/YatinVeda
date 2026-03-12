@@ -1,0 +1,30 @@
+modules:
+  # Basic HTTP 2xx check
+  http_2xx:
+    prober: http
+    timeout: 10s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200]
+      method: GET
+      follow_redirects: true
+      preferred_ip_protocol: ip4
+      tls_config:
+        insecure_skip_verify: false
+
+  # Health endpoint body check — verifies JSON contains "healthy"
+  http_health_body:
+    prober: http
+    timeout: 10s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200]
+      method: GET
+      fail_if_body_not_matches_regexp:
+        - '"status":\s*"healthy"'
+      preferred_ip_protocol: ip4
+
+  # TCP connectivity check (e.g. database port)
+  tcp_connect:
+    prober: tcp
+    timeout: 5s

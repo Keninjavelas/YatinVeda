@@ -1,7 +1,7 @@
-"""GDPR compliance endpoints for data export and deletion."""
+﻿"""GDPR compliance endpoints for data export and deletion."""
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from sqlalchemy import select, delete
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
@@ -18,14 +18,14 @@ from models.database import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/gdpr", tags=["GDPR Compliance"])
+router = APIRouter(tags=["GDPR Compliance"])
 
 
 @router.post("/export-data")
 async def request_data_export(
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Request a full export of user's personal data (GDPR Article 15 & 20).
@@ -54,7 +54,7 @@ async def request_data_export(
             DataExportRequest.request_type == 'export',
             DataExportRequest.status.in_(['pending', 'processing'])
         )
-        result = await db.execute(existing_query)
+        result = db.execute(existing_query)
         existing_request = result.scalar_one_or_none()
         
         if existing_request:
@@ -69,12 +69,11 @@ async def request_data_export(
             request_type='export',
             status='pending',
             expires_at=datetime.utcnow() + timedelta(days=30),  # Export link valid for 30 days
-            created_at=datetime.utcnow()
         )
         
         db.add(export_request)
-        await db.commit()
-        await db.refresh(export_request)
+        db.commit()
+        db.refresh(export_request)
         
         # Schedule background task to generate export
         background_tasks.add_task(generate_data_export, export_request.id, db)
@@ -93,7 +92,7 @@ async def request_data_export(
         raise HTTPException(status_code=500, detail="Failed to process data export request")
 
 
-async def generate_data_export(request_id: int, db: AsyncSession):
+def generate_data_export(request_id: int, db: Session):
     """
     Background task to generate complete data export.
     
@@ -106,7 +105,7 @@ async def generate_data_export(request_id: int, db: AsyncSession):
         
         # Get export request
         query = select(DataExportRequest).where(DataExportRequest.id == request_id)
-        result = await db.execute(query)
+        result = db.execute(query)
         export_request = result.scalar_one_or_none()
         
         if not export_request:
@@ -115,10 +114,10 @@ async def generate_data_export(request_id: int, db: AsyncSession):
         
         # Update status to processing
         export_request.status = 'processing'
-        await db.commit()
+        db.commit()
         
         # Collect all user data
-        user_data = await collect_user_data(export_request.user_id, db)
+        user_data = collect_user_data(export_request.user_id, db)
         
         # Generate JSON file
         export_filename = f"yatinveda_data_export_{export_request.user_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
@@ -132,7 +131,7 @@ async def generate_data_export(request_id: int, db: AsyncSession):
         export_request.file_url = f"/api/v1/gdpr/download/{export_request.id}"
         export_request.status = 'completed'
         export_request.completed_at = datetime.utcnow()
-        await db.commit()
+        db.commit()
         
         # Send email notification (implement email service)
         # await send_export_ready_email(export_request.user_id, export_path)
@@ -146,25 +145,25 @@ async def generate_data_export(request_id: int, db: AsyncSession):
         try:
             from models.database import DataExportRequest
             query = select(DataExportRequest).where(DataExportRequest.id == request_id)
-            result = await db.execute(query)
+            result = db.execute(query)
             export_request = result.scalar_one_or_none()
             
             if export_request:
                 export_request.status = 'failed'
                 export_request.error_message = str(e)
-                await db.commit()
+                db.commit()
         except Exception as update_error:
             logger.error(f"Failed to update export request status: {update_error}")
 
 
-async def collect_user_data(user_id: int, db: AsyncSession) -> Dict[str, Any]:
+def collect_user_data(user_id: int, db: Session) -> Dict[str, Any]:
     """Collect all personal data for a user."""
     data = {}
     
     try:
         # User profile
         user_query = select(User).where(User.id == user_id)
-        result = await db.execute(user_query)
+        result = db.execute(user_query)
         user = result.scalar_one_or_none()
         
         if user:
@@ -185,7 +184,7 @@ async def collect_user_data(user_id: int, db: AsyncSession) -> Dict[str, Any]:
         
         # Birth charts
         charts_query = select(Chart).where(Chart.user_id == user_id)
-        result = await db.execute(charts_query)
+        result = db.execute(charts_query)
         charts = result.scalars().all()
         data['birth_charts'] = [
             {
@@ -203,7 +202,7 @@ async def collect_user_data(user_id: int, db: AsyncSession) -> Dict[str, Any]:
         
         # Bookings
         bookings_query = select(GuruBooking).where(GuruBooking.user_id == user_id)
-        result = await db.execute(bookings_query)
+        result = db.execute(bookings_query)
         bookings = result.scalars().all()
         data['bookings'] = [
             {
@@ -222,7 +221,7 @@ async def collect_user_data(user_id: int, db: AsyncSession) -> Dict[str, Any]:
         
         # Payments
         payments_query = select(Payment).where(Payment.user_id == user_id)
-        result = await db.execute(payments_query)
+        result = db.execute(payments_query)
         payments = result.scalars().all()
         data['payments'] = [
             {
@@ -242,7 +241,7 @@ async def collect_user_data(user_id: int, db: AsyncSession) -> Dict[str, Any]:
         
         # Wallet
         wallet_query = select(Wallet).where(Wallet.user_id == user_id)
-        result = await db.execute(wallet_query)
+        result = db.execute(wallet_query)
         wallet = result.scalar_one_or_none()
         if wallet:
             data['wallet'] = {
@@ -256,7 +255,7 @@ async def collect_user_data(user_id: int, db: AsyncSession) -> Dict[str, Any]:
             transactions_query = select(WalletTransaction).where(
                 WalletTransaction.wallet_id == wallet.id
             )
-            result = await db.execute(transactions_query)
+            result = db.execute(transactions_query)
             transactions = result.scalars().all()
             data['wallet_transactions'] = [
                 {
@@ -271,7 +270,7 @@ async def collect_user_data(user_id: int, db: AsyncSession) -> Dict[str, Any]:
         
         # MFA settings (not including secrets)
         mfa_query = select(MFASettings).where(MFASettings.user_id == user_id)
-        result = await db.execute(mfa_query)
+        result = db.execute(mfa_query)
         mfa = result.scalar_one_or_none()
         if mfa:
             data['mfa_settings'] = {
@@ -282,7 +281,7 @@ async def collect_user_data(user_id: int, db: AsyncSession) -> Dict[str, Any]:
         
         # Learning progress
         progress_query = select(LearningProgress).where(LearningProgress.user_id == user_id)
-        result = await db.execute(progress_query)
+        result = db.execute(progress_query)
         progress = result.scalars().all()
         data['learning_progress'] = [
             {
@@ -295,7 +294,7 @@ async def collect_user_data(user_id: int, db: AsyncSession) -> Dict[str, Any]:
         
         # Chat history
         chat_query = select(ChatHistory).where(ChatHistory.user_id == user_id)
-        result = await db.execute(chat_query)
+        result = db.execute(chat_query)
         chats = result.scalars().all()
         data['chat_history'] = [
             {
@@ -324,7 +323,7 @@ async def collect_user_data(user_id: int, db: AsyncSession) -> Dict[str, Any]:
 @router.delete("/delete-account")
 async def request_account_deletion(
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Request complete account and data deletion (GDPR Article 17 - Right to Erasure).
@@ -352,7 +351,7 @@ async def request_account_deletion(
             GuruBooking.user_id == current_user.id,
             GuruBooking.status.in_(['confirmed', 'pending'])
         )
-        result = await db.execute(active_bookings_query)
+        result = db.execute(active_bookings_query)
         active_bookings = result.scalars().all()
         
         if active_bookings:
@@ -363,7 +362,7 @@ async def request_account_deletion(
         
         # Check for positive wallet balance
         wallet_query = select(Wallet).where(Wallet.user_id == current_user.id)
-        result = await db.execute(wallet_query)
+        result = db.execute(wallet_query)
         wallet = result.scalar_one_or_none()
         
         if wallet and wallet.balance > 0:
@@ -377,15 +376,14 @@ async def request_account_deletion(
             user_id=current_user.id,
             request_type='deletion',
             status='pending',
-            created_at=datetime.utcnow()
         )
         
         db.add(deletion_request)
-        await db.commit()
-        await db.refresh(deletion_request)
+        db.commit()
+        db.refresh(deletion_request)
         
         # Perform immediate deletion
-        await perform_account_deletion(current_user.id, db)
+        perform_account_deletion(current_user.id, db)
         
         return {
             "message": "Account deletion completed successfully",
@@ -401,7 +399,7 @@ async def request_account_deletion(
         raise HTTPException(status_code=500, detail="Failed to process account deletion request")
 
 
-async def perform_account_deletion(user_id: int, db: AsyncSession):
+def perform_account_deletion(user_id: int, db: Session):
     """
     Permanently delete user account and associated data.
     
@@ -413,42 +411,42 @@ async def perform_account_deletion(user_id: int, db: AsyncSession):
         # Delete in order to respect foreign key constraints
         
         # 1. Delete MFA-related data
-        await db.execute(delete(TrustedDevice).where(
+        db.execute(delete(TrustedDevice).where(
             TrustedDevice.mfa_settings_id.in_(
                 select(MFASettings.id).where(MFASettings.user_id == user_id)
             )
         ))
-        await db.execute(delete(MFABackupCode).where(MFABackupCode.user_id == user_id))
-        await db.execute(delete(MFASettings).where(MFASettings.user_id == user_id))
+        db.execute(delete(MFABackupCode).where(MFABackupCode.user_id == user_id))
+        db.execute(delete(MFASettings).where(MFASettings.user_id == user_id))
         
         # 2. Delete authentication tokens
-        await db.execute(delete(RefreshToken).where(RefreshToken.user_id == user_id))
+        db.execute(delete(RefreshToken).where(RefreshToken.user_id == user_id))
         
         # 3. Delete wallet transactions and wallet
         wallet_query = select(Wallet.id).where(Wallet.user_id == user_id)
-        result = await db.execute(wallet_query)
+        result = db.execute(wallet_query)
         wallet_ids = [row[0] for row in result.all()]
         
         if wallet_ids:
-            await db.execute(delete(WalletTransaction).where(
+            db.execute(delete(WalletTransaction).where(
                 WalletTransaction.wallet_id.in_(wallet_ids)
             ))
-            await db.execute(delete(Wallet).where(Wallet.user_id == user_id))
+            db.execute(delete(Wallet).where(Wallet.user_id == user_id))
         
         # 4. Delete learning progress and chat history
-        await db.execute(delete(LearningProgress).where(LearningProgress.user_id == user_id))
-        await db.execute(delete(ChatHistory).where(ChatHistory.user_id == user_id))
+        db.execute(delete(LearningProgress).where(LearningProgress.user_id == user_id))
+        db.execute(delete(ChatHistory).where(ChatHistory.user_id == user_id))
         
         # 5. Delete birth charts
-        await db.execute(delete(Chart).where(Chart.user_id == user_id))
+        db.execute(delete(Chart).where(Chart.user_id == user_id))
         
         # 6. DELETE bookings (but keep payment records for compliance)
-        await db.execute(delete(GuruBooking).where(GuruBooking.user_id == user_id))
+        db.execute(delete(GuruBooking).where(GuruBooking.user_id == user_id))
         
         # 7. Anonymize payment records (keep for legal compliance but remove PII)
         # Note: Payment records are retained but anonymized
         payments_query = select(Payment).where(Payment.user_id == user_id)
-        result = await db.execute(payments_query)
+        result = db.execute(payments_query)
         payments = result.scalars().all()
         
         for payment in payments:
@@ -456,13 +454,13 @@ async def perform_account_deletion(user_id: int, db: AsyncSession):
             payment.receipt = f"[DELETED_USER]_{payment.receipt}"
         
         # 8. Finally, delete user account
-        await db.execute(delete(User).where(User.id == user_id))
+        db.execute(delete(User).where(User.id == user_id))
         
-        await db.commit()
+        db.commit()
         logger.info(f"Successfully deleted account for user {user_id}")
         
     except Exception as e:
-        await db.rollback()
+        db.rollback()
         logger.error(f"Error deleting user account: {e}")
         raise
 
@@ -471,7 +469,7 @@ async def perform_account_deletion(user_id: int, db: AsyncSession):
 async def download_data_export(
     request_id: int,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Download completed data export file.
@@ -488,7 +486,7 @@ async def download_data_export(
             DataExportRequest.id == request_id,
             DataExportRequest.user_id == current_user.id
         )
-        result = await db.execute(query)
+        result = db.execute(query)
         export_request = result.scalar_one_or_none()
         
         if not export_request:

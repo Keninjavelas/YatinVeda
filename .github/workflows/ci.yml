@@ -38,11 +38,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest black flake8 pip-audit
+          pip install pytest pytest-cov black flake8 pip-audit hypothesis aiofiles
 
-      - name: Run tests
+      - name: Run tests with coverage
+        env:
+          DISABLE_RATELIMIT: "1"
         run: |
-          python -m pytest -v
+          python -m pytest -v --cov=. --cov-report=term-missing --cov-fail-under=70
 
       - name: Code quality checks
         run: |
@@ -164,6 +166,10 @@ jobs:
       - name: Lint
         run: |
           npm run lint --if-present
+
+      - name: Test with coverage
+        run: |
+          npx jest --coverage --passWithNoTests
 
       - name: Build
         run: |

@@ -1,0 +1,126 @@
+groups:
+  - name: yatinveda-backend
+    rules:
+      # High 5xx error rate — more than 5% of requests failing over 5 minutes
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_errors_total{status=~"5.."}[5m]))
+            / sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High 5xx error rate ({{ $value | humanizePercentage }})"
+          description: "More than 5% of HTTP requests are returning 5xx errors for the last 5 minutes."
+
+      # Slow response times — p95 latency above 2 seconds
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))
+          > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p95 latency ({{ $value | humanizeDuration }})"
+          description: "95th percentile response time exceeds 2 seconds for the last 5 minutes."
+
+      # Too many active requests — possible request pileup
+      - alert: RequestPileup
+        expr: http_active_requests > 100
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Request pileup detected ({{ $value }} active)"
+          description: "More than 100 concurrent requests active for over 2 minutes."
+
+      # Backend pod restarting frequently
+      - alert: PodCrashLooping
+        expr: |
+          increase(kube_pod_container_status_restarts_total{namespace="yatinveda"}[1h]) > 3
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pod {{ $labels.pod }} crash-looping"
+          description: "Container {{ $labels.container }} in pod {{ $labels.pod }} restarted {{ $value }} times in the last hour."
+
+  - name: yatinveda-infrastructure
+    rules:
+      # Prometheus target down
+      - alert: TargetDown
+        expr: up == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Target {{ $labels.instance }} is down"
+          description: "Prometheus target {{ $labels.job }}/{{ $labels.instance }} has been unreachable for over 3 minutes."
+
+      # Disk space warning (for Kubernetes nodes or Docker host)
+      - alert: DiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space below 15% on {{ $labels.instance }}"
+          description: "Only {{ $value | humanizePercentage }} of disk space remaining on {{ $labels.instance }}."
+
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage ({{ $value | humanizePercentage }}) on {{ $labels.instance }}"
+          description: "Memory usage above 90% for more than 5 minutes."
+
+      # High CPU usage
+      - alert: HighCPUUsage
+        expr: |
+          (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance)) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage ({{ $value | humanizePercentage }}) on {{ $labels.instance }}"
+          description: "CPU usage above 85% for more than 10 minutes."
+
+  - name: yatinveda-synthetic
+    rules:
+      # Blackbox probe failure — endpoint unreachable or non-2xx
+      - alert: EndpointDown
+        expr: probe_success == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Endpoint {{ $labels.instance }} is down"
+          description: "Blackbox probe has failed for {{ $labels.instance }} for 2+ minutes."
+
+      # Slow probe response
+      - alert: SlowEndpoint
+        expr: probe_duration_seconds > 5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Endpoint {{ $labels.instance }} is slow ({{ $value }}s)"
+          description: "Probe latency exceeds 5 seconds for 3+ minutes."
+
+      # SSL certificate nearing expiry
+      - alert: SSLCertExpiringSoon
+        expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 14
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "SSL cert for {{ $labels.instance }} expires in < 14 days"
+          description: "Certificate will expire within 14 days — renew immediately."

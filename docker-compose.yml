@@ -26,6 +26,14 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-yatinveda}
     volumes:
       - db_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-yatinveda} -d ${POSTGRES_DB:-yatinveda}"]
       interval: 10s
@@ -50,6 +58,14 @@ services:
       --requirepass ${REDIS_PASSWORD:-redispass}
     volumes:
       - redis_data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redispass}", "ping"]
       interval: 10s
@@ -128,6 +144,14 @@ services:
       redis:
         condition: service_healthy
     command: ["/app/entrypoint.sh"]
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s
@@ -152,6 +176,14 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:3000/ || exit 1"]
       interval: 30s
@@ -178,6 +210,14 @@ services:
     depends_on:
       - backend
       - frontend
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          cpus: '0.05'
+          memory: 32M
     healthcheck:
       test: ["CMD", "nginx", "-t"]
       interval: 30s
@@ -231,6 +271,23 @@ services:
       - "3001:3000"
     depends_on:
       - prometheus
+    networks:
+      - yatinveda-net
+
+  # ──────────────────────────────────────────
+  # Blackbox Exporter – Synthetic HTTP probes
+  # ──────────────────────────────────────────
+  blackbox-exporter:
+    image: prom/blackbox-exporter:latest
+    container_name: yatinveda-blackbox
+    restart: unless-stopped
+    profiles:
+      - monitoring
+    volumes:
+      - ./monitoring/blackbox.yml:/config/blackbox.yml:ro
+    command: --config.file=/config/blackbox.yml
+    ports:
+      - "9115:9115"
     networks:
       - yatinveda-net
 

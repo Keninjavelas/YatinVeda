@@ -64,7 +64,7 @@ interface ToastContainerProps {
 
 function ToastContainer({ toasts, removeToast }: ToastContainerProps) {
   return (
-    <div className="fixed top-4 right-4 z-50 space-y-3 pointer-events-none">
+    <div className="fixed top-4 right-4 z-50 space-y-3 pointer-events-none" aria-live="polite" aria-relevant="additions removals">
       {toasts.map(toast => (
         <ToastItem key={toast.id} toast={toast} onClose={() => removeToast(toast.id)} />
       ))}
@@ -94,6 +94,7 @@ function ToastItem({ toast, onClose }: ToastItemProps) {
 
   return (
     <div
+      role="alert"
       className={`${bgColor} text-white px-6 py-4 rounded-lg shadow-lg flex items-start gap-3 pointer-events-auto animate-slideIn`}
     >
       <span className="text-lg font-bold flex-shrink-0">{icon}</span>
@@ -101,6 +102,7 @@ function ToastItem({ toast, onClose }: ToastItemProps) {
       <button
         onClick={onClose}
         className="flex-shrink-0 text-white hover:opacity-80 transition-opacity"
+        aria-label="Dismiss notification"
       >
         <X size={18} />
       </button>

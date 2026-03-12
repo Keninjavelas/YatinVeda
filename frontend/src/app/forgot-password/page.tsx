@@ -1,21 +1,30 @@
 ﻿'use client'
 
-import { FormEvent, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { AlertCircle, ArrowLeft, CheckCircle, Mail } from 'lucide-react'
 import { useToast } from '@/lib/toast-context'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { forgotPasswordSchema, type ForgotPasswordFormData } from '@/lib/validation'
 
 export default function ForgotPasswordPage() {
   const { showToast } = useToast()
-  const [email, setEmail] = useState('')
-  const [error, setError] = useState('')
+  const [serverError, setServerError] = useState('')
   const [success, setSuccess] = useState(false)
-  const [loading, setLoading] = useState(false)
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<ForgotPasswordFormData>({
+    resolver: zodResolver(forgotPasswordSchema),
+    defaultValues: { email: '' },
+  })
+
+  const onSubmit = async (data: ForgotPasswordFormData) => {
+    setServerError('')
 
     try {
       const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
@@ -26,31 +35,29 @@ export default function ForgotPasswordPage() {
       const response = await fetch(`${API_BASE_URL}/api/v1/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: data.email }),
         signal: controller.signal,
       })
 
       clearTimeout(timeoutId)
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({ detail: 'Failed to process request' }))
-        const message = data.detail || data.message || 'Failed to process request'
-        setError(message)
+        const respData = await response.json().catch(() => ({ detail: 'Failed to process request' }))
+        const message = respData.detail || respData.message || 'Failed to process request'
+        setServerError(message)
         showToast(message, 'error')
         return
       }
 
       setSuccess(true)
       showToast('Password reset link sent. Check your email.', 'success')
-      setEmail('')
+      reset()
     } catch (err) {
       const message = err instanceof Error && err.name === 'AbortError'
         ? 'Request timed out. Please try again.'
         : 'Failed to process request. Please try again.'
-      setError(message)
+      setServerError(message)
       showToast(message, 'error')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -68,10 +75,10 @@ export default function ForgotPasswordPage() {
         </div>
 
         <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-8 shadow-2xl backdrop-blur-sm">
-          {error && (
+          {serverError && (
             <div className="mb-6 flex items-start space-x-3 rounded-lg bg-red-500/10 border border-red-500/30 p-4">
               <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-red-200">{error}</p>
+              <p className="text-sm text-red-200">{serverError}</p>
             </div>
           )}
 
@@ -88,7 +95,7 @@ export default function ForgotPasswordPage() {
           )}
 
           {!success ? (
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-2">
                   Email Address
@@ -98,23 +105,22 @@ export default function ForgotPasswordPage() {
                   <input
                     id="email"
                     type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
+                    {...register('email')}
                     className="w-full pl-11 pr-4 py-3 bg-slate-900/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
                     placeholder="your@email.com"
-                    disabled={loading}
+                    disabled={isSubmitting}
                     autoComplete="email"
                   />
                 </div>
+                {errors.email && <p className="mt-1 text-sm text-red-400">{errors.email.message}</p>}
               </div>
 
               <button
                 type="submit"
-                disabled={loading}
+                disabled={isSubmitting}
                 className="w-full py-3 px-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-slate-600 disabled:to-slate-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-200 shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50"
               >
-                {loading ? (
+                {isSubmitting ? (
                   <span className="flex items-center justify-center">
                     <svg
                       className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
@@ -142,7 +148,7 @@ export default function ForgotPasswordPage() {
               <button
                 onClick={() => {
                   setSuccess(false)
-                  setEmail('')
+                  reset()
                 }}
                 className="text-purple-400 hover:text-purple-300 font-medium transition"
               >

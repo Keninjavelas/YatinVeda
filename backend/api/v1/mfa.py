@@ -133,7 +133,12 @@ async def setup_mfa(
             detail="MFA is already enabled. Disable it first to reconfigure."
         )
 
-    secret_key, qr_code, backup_codes = mfa_manager.setup_mfa(current_user)
+    # Fetch the full User ORM model (setup_mfa needs user.email for QR code)
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    secret_key, qr_code, backup_codes = mfa_manager.setup_mfa(user)
 
     return MFASetupResponse(
         qr_code=qr_code,

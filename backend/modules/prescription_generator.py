@@ -5,6 +5,7 @@ Uses reportlab for professional PDF generation with embedded signatures and QR c
 
 from typing import List, Dict, Optional, Any
 from datetime import datetime
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -50,6 +51,11 @@ class PrescriptionGenerator:
         except ImportError:
             self.reportlab_available = False
     
+    def generate_verification_code(self, prescription_data: Dict[str, Any]) -> str:
+        """Generate a unique verification code for a prescription."""
+        raw = json.dumps(prescription_data, sort_keys=True) + str(datetime.utcnow().timestamp())
+        return hashlib.sha256(raw.encode()).hexdigest()[:12].upper()
+
     def generate_prescription_pdf(
         self,
         prescription_data: Dict[str, Any],

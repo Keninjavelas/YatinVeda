@@ -1,7 +1,7 @@
-"""Cookie consent management API endpoints."""
+﻿"""Cookie consent management API endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from sqlalchemy import select
 from pydantic import BaseModel
 from datetime import datetime
@@ -14,7 +14,7 @@ from models.database import User
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/cookies", tags=["Cookie Consent"])
+router = APIRouter(tags=["Cookie Consent"])
 
 
 class CookiePreferences(BaseModel):
@@ -34,7 +34,7 @@ class LegalConsent(BaseModel):
 @router.get("/preferences")
 async def get_cookie_preferences(
     current_user: Optional[User] = Depends(get_current_user_optional),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Get user's cookie preferences.
@@ -58,15 +58,15 @@ async def get_cookie_preferences(
         query = select(CookiePreference).where(
             CookiePreference.user_id == current_user.id
         )
-        result = await db.execute(query)
+        result = db.execute(query)
         prefs = result.scalar_one_or_none()
         
         if prefs:
             return {
-                "essential_cookies": prefs.essential_cookies,
-                "functional_cookies": prefs.functional_cookies,
-                "analytics_cookies": prefs.analytics_cookies,
-                "marketing_cookies": prefs.marketing_cookies,
+                "essential_cookies": prefs.essential,
+                "functional_cookies": prefs.functional,
+                "analytics_cookies": prefs.analytics,
+                "marketing_cookies": prefs.marketing,
                 "is_configured": True,
                 "updated_at": prefs.updated_at
             }
@@ -89,7 +89,7 @@ async def get_cookie_preferences(
 async def update_cookie_preferences(
     preferences: CookiePreferences,
     current_user: Optional[User] = Depends(get_current_user_optional),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Update user's cookie preferences.
@@ -109,39 +109,39 @@ async def update_cookie_preferences(
             query = select(CookiePreference).where(
                 CookiePreference.user_id == current_user.id
             )
-            result = await db.execute(query)
+            result = db.execute(query)
             prefs = result.scalar_one_or_none()
             
             if prefs:
                 # Update existing preferences
-                prefs.essential_cookies = preferences.essential_cookies
-                prefs.functional_cookies = preferences.functional_cookies
-                prefs.analytics_cookies = preferences.analytics_cookies
-                prefs.marketing_cookies = preferences.marketing_cookies
+                prefs.essential = preferences.essential_cookies
+                prefs.functional = preferences.functional_cookies
+                prefs.analytics = preferences.analytics_cookies
+                prefs.marketing = preferences.marketing_cookies
                 prefs.updated_at = datetime.utcnow()
             else:
                 # Create new preferences
                 prefs = CookiePreference(
                     user_id=current_user.id,
-                    essential_cookies=preferences.essential_cookies,
-                    functional_cookies=preferences.functional_cookies,
-                    analytics_cookies=preferences.analytics_cookies,
-                    marketing_cookies=preferences.marketing_cookies,
+                    essential=preferences.essential_cookies,
+                    functional=preferences.functional_cookies,
+                    analytics=preferences.analytics_cookies,
+                    marketing=preferences.marketing_cookies,
                     updated_at=datetime.utcnow(),
                     created_at=datetime.utcnow()
                 )
                 db.add(prefs)
             
-            await db.commit()
-            await db.refresh(prefs)
+            db.commit()
+            db.refresh(prefs)
             
             return {
                 "message": "Cookie preferences updated successfully",
                 "preferences": {
-                    "essential_cookies": prefs.essential_cookies,
-                    "functional_cookies": prefs.functional_cookies,
-                    "analytics_cookies": prefs.analytics_cookies,
-                    "marketing_cookies": prefs.marketing_cookies,
+                    "essential_cookies": prefs.essential,
+                    "functional_cookies": prefs.functional,
+                    "analytics_cookies": prefs.analytics,
+                    "marketing_cookies": prefs.marketing,
                     "updated_at": prefs.updated_at
                 }
             }
@@ -154,7 +154,7 @@ async def update_cookie_preferences(
             }
             
     except Exception as e:
-        await db.rollback()
+        db.rollback()
         logger.error(f"Error updating cookie preferences: {e}")
         raise HTTPException(status_code=500, detail="Failed to update cookie preferences")
 
@@ -163,7 +163,7 @@ async def update_cookie_preferences(
 async def record_legal_consent(
     consent: LegalConsent,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Record user's consent to legal documents (GDPR compliance).
@@ -187,12 +187,11 @@ async def record_legal_consent(
             consent_type=consent.consent_type,
             consent_version=consent.consent_version,
             consented_at=datetime.utcnow(),
-            created_at=datetime.utcnow()
         )
         
         db.add(consent_record)
-        await db.commit()
-        await db.refresh(consent_record)
+        db.commit()
+        db.refresh(consent_record)
         
         return {
             "message": f"Consent to {consent.consent_type} recorded successfully",
@@ -203,7 +202,7 @@ async def record_legal_consent(
     except HTTPException:
         raise
     except Exception as e:
-        await db.rollback()
+        db.rollback()
         logger.error(f"Error recording legal consent: {e}")
         raise HTTPException(status_code=500, detail="Failed to record consent")
 
@@ -211,7 +210,7 @@ async def record_legal_consent(
 @router.get("/consent/history")
 async def get_consent_history(
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Get user's consent history.
@@ -225,7 +224,7 @@ async def get_consent_history(
             LegalConsentModel.user_id == current_user.id
         ).order_by(LegalConsentModel.consented_at.desc())
         
-        result = await db.execute(query)
+        result = db.execute(query)
         consents = result.scalars().all()
         
         return {
@@ -250,7 +249,7 @@ async def get_consent_history(
 async def withdraw_consent(
     consent_type: str,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     """
     Withdraw consent for a specific type.
@@ -267,7 +266,7 @@ async def withdraw_consent(
             LegalConsentModel.withdrawn_at.is_(None)
         ).order_by(LegalConsentModel.consented_at.desc())
         
-        result = await db.execute(query)
+        result = db.execute(query)
         consent = result.scalar_one_or_none()
         
         if not consent:
@@ -278,7 +277,7 @@ async def withdraw_consent(
         
         # Mark as withdrawn
         consent.withdrawn_at = datetime.utcnow()
-        await db.commit()
+        db.commit()
         
         warning = None
         if consent_type in ['terms', 'privacy']:
@@ -293,7 +292,7 @@ async def withdraw_consent(
     except HTTPException:
         raise
     except Exception as e:
-        await db.rollback()
+        db.rollback()
         logger.error(f"Error withdrawing consent: {e}")
         raise HTTPException(status_code=500, detail="Failed to withdraw consent")
 

@@ -1,10 +1,13 @@
 ﻿'use client'
 
-import { FormEvent, useState, Suspense } from 'react'
+import { useState, Suspense } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { AlertCircle, ArrowLeft, CheckCircle, Eye, EyeOff, Lock } from 'lucide-react'
 import { useToast } from '@/lib/toast-context'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { resetPasswordSchema, type ResetPasswordFormData } from '@/lib/validation'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,39 +18,28 @@ function ResetPasswordContent() {
   const token = searchParams.get('token') || ''
   const email = searchParams.get('email') || ''
 
-  const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<ResetPasswordFormData>({
+    resolver: zodResolver(resetPasswordSchema),
+    defaultValues: { password: '', confirmPassword: '' },
+  })
+
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [error, setError] = useState('')
+  const [serverError, setServerError] = useState('')
   const [success, setSuccess] = useState(false)
-  const [loading, setLoading] = useState(false)
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    setError('')
+  const onSubmit = async (data: ResetPasswordFormData) => {
+    setServerError('')
 
     if (!token) {
-      setError('Reset link is invalid or missing.')
+      setServerError('Reset link is invalid or missing.')
       return
     }
 
-    if (password !== confirmPassword) {
-      setError('Passwords do not match')
-      return
-    }
-
-    if (password.length < 8 || password.length > 71) {
-      setError('Password must be between 8 and 71 characters')
-      return
-    }
-
-    if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password)) {
-      setError('Password must include uppercase, lowercase, and a number')
-      return
-    }
-
-    setLoading(true)
     try {
       const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
       const controller = new AbortController()
@@ -56,16 +48,16 @@ function ResetPasswordContent() {
       const response = await fetch(`${API_BASE_URL}/api/v1/auth/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, password }),
+        body: JSON.stringify({ token, password: data.password }),
         signal: controller.signal,
       })
 
       clearTimeout(timeoutId)
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({ detail: 'Password reset failed' }))
-        const message = data.detail || data.message || 'Password reset failed'
-        setError(message)
+        const respData = await response.json().catch(() => ({ detail: 'Password reset failed' }))
+        const message = respData.detail || respData.message || 'Password reset failed'
+        setServerError(message)
         showToast(message, 'error')
         return
       }
@@ -77,10 +69,8 @@ function ResetPasswordContent() {
       const message = err instanceof Error && err.name === 'AbortError'
         ? 'Request timed out. Please try again.'
         : 'Something went wrong. Please try again.'
-      setError(message)
+      setServerError(message)
       showToast(message, 'error')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -98,10 +88,10 @@ function ResetPasswordContent() {
         </div>
 
         <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-8 shadow-2xl backdrop-blur-sm">
-          {error && (
+          {serverError && (
             <div className="mb-6 flex items-start space-x-3 rounded-lg bg-red-500/10 border border-red-500/30 p-4">
               <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-red-200">{error}</p>
+              <p className="text-sm text-red-200">{serverError}</p>
             </div>
           )}
 
@@ -116,7 +106,7 @@ function ResetPasswordContent() {
           )}
 
           {!success && (
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
               <div>
                 <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-2">
                   New Password
@@ -126,14 +116,10 @@ function ResetPasswordContent() {
                   <input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    minLength={8}
-                    maxLength={71}
+                    {...register('password')}
                     className="w-full pl-11 pr-11 py-3 bg-slate-900/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                     placeholder="New password"
-                    disabled={loading}
+                    disabled={isSubmitting}
                   />
                   <button
                     type="button"
@@ -144,6 +130,7 @@ function ResetPasswordContent() {
                     {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
                 </div>
+                {errors.password && <p className="mt-1 text-sm text-red-400">{errors.password.message}</p>}
               </div>
 
               <div>
@@ -155,14 +142,10 @@ function ResetPasswordContent() {
                   <input
                     id="confirm"
                     type={showConfirmPassword ? 'text' : 'password'}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    required
-                    minLength={8}
-                    maxLength={71}
+                    {...register('confirmPassword')}
                     className="w-full pl-11 pr-11 py-3 bg-slate-900/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                     placeholder="Confirm password"
-                    disabled={loading}
+                    disabled={isSubmitting}
                   />
                   <button
                     type="button"
@@ -173,14 +156,15 @@ function ResetPasswordContent() {
                     {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
                 </div>
+                {errors.confirmPassword && <p className="mt-1 text-sm text-red-400">{errors.confirmPassword.message}</p>}
               </div>
 
               <button
                 type="submit"
-                disabled={loading}
+                disabled={isSubmitting}
                 className="w-full py-3 px-4 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 disabled:from-slate-600 disabled:to-slate-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50"
               >
-                {loading ? (
+                {isSubmitting ? (
                   <span className="flex items-center justify-center">
                     <svg
                       className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"

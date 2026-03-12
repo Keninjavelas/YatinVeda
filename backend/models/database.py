@@ -315,6 +315,7 @@ class Chart(Base):
     is_public = Column(Boolean, default=False)
     is_primary = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user = relationship("User")
 
@@ -415,8 +416,15 @@ class UserProfile(Base):
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     bio = Column(Text, nullable=True)
     avatar_url = Column(String, nullable=True)
+    cover_image_url = Column(String, nullable=True)
     location = Column(String, nullable=True)
+    website = Column(String, nullable=True)
     interests = Column(JSON, nullable=True)
+    expertise_areas = Column(JSON, nullable=True)
+    is_verified = Column(Boolean, default=False)
+    followers_count = Column(Integer, default=0)
+    following_count = Column(Integer, default=0)
+    posts_count = Column(Integer, default=0)
     privacy_settings = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -429,13 +437,19 @@ class CommunityPost(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    title = Column(String, nullable=True)
     content = Column(Text, nullable=False)
     post_type = Column(String, default="text")
     media_url = Column(String, nullable=True)
     chart_id = Column(Integer, ForeignKey("charts.id"), nullable=True)
     tags = Column(JSON, nullable=True)
+    visibility = Column(String, default="public")
     likes_count = Column(Integer, default=0)
     comments_count = Column(Integer, default=0)
+    shares_count = Column(Integer, default=0)
+    is_pinned = Column(Boolean, default=False)
+    is_edited = Column(Boolean, default=False)
+    edited_at = Column(DateTime, nullable=True)
     is_public = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -453,6 +467,8 @@ class PostComment(Base):
     content = Column(Text, nullable=False)
     parent_comment_id = Column(Integer, ForeignKey("post_comments.id"), nullable=True)
     likes_count = Column(Integer, default=0)
+    is_edited = Column(Boolean, default=False)
+    edited_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -500,19 +516,24 @@ class CommunityEvent(Base):
     __tablename__ = "community_events"
 
     id = Column(Integer, primary_key=True, index=True)
-    organizer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     title = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     event_type = Column(String, nullable=False)
     event_date = Column(DateTime, nullable=False)
+    duration_minutes = Column(Integer, nullable=True)
     location = Column(String, nullable=True)
     is_online = Column(Boolean, default=False)
     meeting_link = Column(String, nullable=True)
     max_participants = Column(Integer, nullable=True)
     is_public = Column(Boolean, default=True)
+    tags = Column(JSON, nullable=True)
+    cover_image_url = Column(String, nullable=True)
+    participants_count = Column(Integer, default=0)
+    status = Column(String, default="upcoming")
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    organizer = relationship("User")
+    creator = relationship("User", foreign_keys=[created_by])
 
 
 class EventRegistration(Base):
@@ -534,8 +555,12 @@ class Notification(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     notification_type = Column(String, nullable=False)
+    title = Column(String, nullable=True)
     content = Column(Text, nullable=False)
     link = Column(String, nullable=True)
+    link_url = Column(String, nullable=True)
+    related_user_id = Column(Integer, nullable=True)
+    related_username = Column(String, nullable=True)
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -549,10 +574,16 @@ class Prescription(Base):
     booking_id = Column(Integer, ForeignKey("guru_bookings.id"), nullable=False)
     guru_id = Column(Integer, ForeignKey("gurus.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    title = Column(String(200), nullable=True)
+    diagnosis = Column(Text, nullable=True)
     remedies = Column(JSON, nullable=False)
     notes = Column(Text, nullable=True)
+    follow_up_date = Column(String, nullable=True)
+    verification_code = Column(String, unique=True, nullable=True, index=True)
+    is_active = Column(Boolean, default=True)
     digital_signature = Column(String, nullable=True)
     pdf_url = Column(String, nullable=True)
+    qr_code_url = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -566,15 +597,13 @@ class PrescriptionReminder(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     prescription_id = Column(Integer, ForeignKey("prescriptions.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    reminder_date = Column(DateTime, nullable=False)
     reminder_type = Column(String, default="follow_up")
-    message = Column(Text, nullable=True)
-    is_sent = Column(Boolean, default=False)
+    reminder_text = Column(Text, nullable=True)
+    scheduled_at = Column(DateTime, nullable=True)
+    status = Column(String, default="pending")
     created_at = Column(DateTime, default=datetime.utcnow)
 
     prescription = relationship("Prescription")
-    user = relationship("User")
 
 
 class EmailVerificationToken(Base):

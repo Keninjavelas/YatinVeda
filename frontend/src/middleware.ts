@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
+const SUPPORTED_LOCALES = ['en', 'hi'] as const
+const DEFAULT_LOCALE = 'en'
+const LOCALE_COOKIE = 'yv_locale'
+
 /**
  * Enhanced middleware for YatinVeda frontend.
  * 
  * Features:
+ * - i18n locale detection from URL prefix (/en/, /hi/)
  * - Request correlation IDs for distributed tracing
  * - Comprehensive security headers
  * - Performance monitoring headers
@@ -21,6 +26,47 @@ const requestMetrics = {
 
 export function middleware(request: NextRequest) {
   const startTime = Date.now()
+  const { pathname } = request.nextUrl
+
+  // ============================================================================
+  // i18n — Locale prefix detection (/en/..., /hi/...)
+  // ============================================================================
+  const localeMatch = pathname.match(/^\/(en|hi)(\/|$)/)
+  if (localeMatch) {
+    const locale = localeMatch[1] as (typeof SUPPORTED_LOCALES)[number]
+    // Strip the locale prefix and rewrite
+    const strippedPath = pathname.replace(/^\/(en|hi)/, '') || '/'
+    const url = request.nextUrl.clone()
+    url.pathname = strippedPath
+    const response = NextResponse.rewrite(url)
+    response.cookies.set(LOCALE_COOKIE, locale, {
+      path: '/',
+      maxAge: 60 * 60 * 24 * 365,
+      sameSite: 'lax',
+    })
+    return response
+  }
+
+  // Auto-redirect based on Accept-Language when no locale cookie is set
+  if (
+    !request.cookies.get(LOCALE_COOKIE) &&
+    !pathname.startsWith('/api/') &&
+    !pathname.startsWith('/_next/') &&
+    !pathname.includes('.')
+  ) {
+    const acceptLang = request.headers.get('accept-language') || ''
+    const preferHindi = /\bhi\b/.test(acceptLang.split(',')[0] || '')
+    if (preferHindi) {
+      const response = NextResponse.next()
+      response.cookies.set(LOCALE_COOKIE, 'hi', {
+        path: '/',
+        maxAge: 60 * 60 * 24 * 365,
+        sameSite: 'lax',
+      })
+      // continue — don't redirect, just set cookie for the provider
+    }
+  }
+
   const response = NextResponse.next()
 
   // Generate unique correlation ID for distributed tracing
@@ -30,8 +76,7 @@ export function middleware(request: NextRequest) {
   
   // Track request metrics
   requestMetrics.total++
-  const path = request.nextUrl.pathname
-  requestMetrics.byPath.set(path, (requestMetrics.byPath.get(path) || 0) + 1)
+  requestMetrics.byPath.set(pathname, (requestMetrics.byPath.get(pathname) || 0) + 1)
   
   // ============================================================================
   // Security Headers
@@ -56,7 +101,7 @@ export function middleware(request: NextRequest) {
   )
   
   // Content Security Policy (CSP)
-  if (!path.startsWith('/api/')) {
+  if (!pathname.startsWith('/api/')) {
     response.headers.set(
       'Content-Security-Policy',
       "default-src 'self'; " +
@@ -91,28 +136,28 @@ export function middleware(request: NextRequest) {
   // ============================================================================
   
   // API routes - no caching for fresh data
-  if (path.startsWith('/api/')) {
+  if (pathname.startsWith('/api/')) {
     response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
     response.headers.set('Pragma', 'no-cache')
     response.headers.set('Expires', '0')
   }
   // Static assets - aggressive caching with immutability
-  else if (path.match(/\.(jpg|jpeg|png|gif|ico|css|js|woff|woff2|ttf|eot|svg|webp)$/)) {
+  else if (pathname.match(/\.(jpg|jpeg|png|gif|ico|css|js|woff|woff2|ttf|eot|svg|webp)$/)) {
     response.headers.set('Cache-Control', 'public, immutable, max-age=31536000')
   }
   // Next.js static files - long-term caching
-  else if (path.startsWith('/_next/static')) {
+  else if (pathname.startsWith('/_next/static')) {
     response.headers.set('Cache-Control', 'public, immutable, max-age=31536000')
   }
   // Next.js data - short caching with revalidation
-  else if (path.startsWith('/_next/data')) {
+  else if (pathname.startsWith('/_next/data')) {
     response.headers.set('Cache-Control', 'private, max-age=60, stale-while-revalidate=300')
   }
   // HTML pages - cache with stale-while-revalidate for better UX
-  else if (!path.includes('.')) {
+  else if (!pathname.includes('.')) {
     // Authenticated pages - no caching
     const authPages = ['/dashboard', '/profile', '/wallet', '/prescriptions', '/community-feed']
-    if (authPages.some(authPath => path.startsWith(authPath))) {
+    if (authPages.some(authPath => pathname.startsWith(authPath))) {
       response.headers.set('Cache-Control', 'private, no-cache, no-store, must-revalidate')
     }
     // Public pages - cache with revalidation

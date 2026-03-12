@@ -1,12 +1,15 @@
 'use client'
 
-import { useState, FormEvent, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { User, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useToast } from '@/lib/toast-context'
 import { LoadingIndicator } from '@/components/loading-indicator'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { loginSchema, type LoginFormData } from '@/lib/validation'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,11 +21,17 @@ function LoginContent() {
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard'
   const reason = searchParams.get('reason')
 
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<LoginFormData>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: { email: '', password: '' },
+  })
+
   const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [serverError, setServerError] = useState('')
 
   // Show appropriate message based on redirect reason
   useEffect(() => {
@@ -71,22 +80,18 @@ function LoginContent() {
     }
   }, [isAuthenticated, user, router, callbackUrl, addToast])
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
+  const onSubmit = async (data: LoginFormData) => {
+    setServerError('')
 
     try {
-      await login(email, password)
+      await login(data.email, data.password)
       
       // Success message will be shown after redirect based on user role
       // The redirect logic is handled in the useEffect above
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Login failed. Please try again.'
-      setError(errorMsg)
+      setServerError(errorMsg)
       addToast(errorMsg, 'error', 4000)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -106,14 +111,14 @@ function LoginContent() {
 
         {/* Form Card */}
         <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-8 shadow-2xl backdrop-blur-sm">
-          {error && (
+          {serverError && (
             <div className="mb-6 flex items-start space-x-3 rounded-lg bg-red-500/10 border border-red-500/30 p-4 animate-in fade-in">
               <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-red-200">{error}</p>
+              <p className="text-sm text-red-200">{serverError}</p>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-2">
                 Email or Username
@@ -123,15 +128,14 @@ function LoginContent() {
                 <input
                   id="email"
                   type="text"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
+                  {...register('email')}
                   className="w-full pl-11 pr-4 py-3 bg-slate-900/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
                   placeholder="your@email.com or username"
-                  disabled={loading}
+                  disabled={isSubmitting}
                   autoComplete="email"
                 />
               </div>
+              {errors.email && <p className="mt-1 text-sm text-red-400">{errors.email.message}</p>}
             </div>
 
             <div>
@@ -151,12 +155,10 @@ function LoginContent() {
                 <input
                   id="password"
                   type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
+                  {...register('password')}
                   className="w-full pl-11 pr-11 py-3 bg-slate-900/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
                   placeholder="••••••••"
-                  disabled={loading}
+                  disabled={isSubmitting}
                   autoComplete="current-password"
                 />
                 <button
@@ -172,14 +174,15 @@ function LoginContent() {
                   )}
                 </button>
               </div>
+              {errors.password && <p className="mt-1 text-sm text-red-400">{errors.password.message}</p>}
             </div>
 
             <button
               type="submit"
-              disabled={loading || isApiLoading}
+              disabled={isSubmitting || isApiLoading}
               className="w-full py-3 px-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-slate-600 disabled:to-slate-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-200 shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 hover:scale-[1.02]"
             >
-              {loading || isApiLoading ? (
+              {isSubmitting || isApiLoading ? (
                 <span className="flex items-center justify-center">
                   <LoadingIndicator show={true} size="sm" className="mr-3" />
                   Signing in...

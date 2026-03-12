@@ -201,9 +201,17 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>('en')
 
   useEffect(() => {
-    const stored = typeof window !== 'undefined' ? localStorage.getItem('yv_locale') : null
-    if (stored === 'en' || stored === 'hi') {
-      setLocaleState(stored)
+    // Priority: cookie (set by middleware from URL prefix) > localStorage
+    let detected: string | null = null
+    if (typeof document !== 'undefined') {
+      const match = document.cookie.match(/(?:^|;\s*)yv_locale=(en|hi)/)
+      if (match) detected = match[1]
+    }
+    if (!detected && typeof window !== 'undefined') {
+      detected = localStorage.getItem('yv_locale')
+    }
+    if (detected === 'en' || detected === 'hi') {
+      setLocaleState(detected)
     }
   }, [])
 
@@ -211,6 +219,9 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     setLocaleState(next)
     if (typeof window !== 'undefined') {
       localStorage.setItem('yv_locale', next)
+    }
+    if (typeof document !== 'undefined') {
+      document.cookie = `yv_locale=${next};path=/;max-age=${60 * 60 * 24 * 365};samesite=lax`
     }
   }
 

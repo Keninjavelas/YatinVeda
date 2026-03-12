@@ -20,6 +20,11 @@ from modules.auth import get_current_user
 router = APIRouter()
 
 
+def _get_user_from_db(db: Session, user_id: int) -> User:
+    """Fetch the actual User ORM model from DB (current_user is UserInfo without full_name)."""
+    return db.query(User).filter(User.id == user_id).first()
+
+
 # ==================== Pydantic Models ====================
 
 class PostCreate(BaseModel):
@@ -196,6 +201,7 @@ async def create_post(
     db: Session = Depends(get_db)
 ):
     """Create a new community post"""
+    user = _get_user_from_db(db, current_user.id)
     # Validate chart_id if provided
     if post_data.chart_id:
         from models.database import Chart
@@ -227,7 +233,7 @@ async def create_post(
         id=new_post.id,
         user_id=new_post.user_id,
         username=current_user.username,
-        full_name=current_user.full_name,
+        full_name=user.full_name if user else None,
         avatar_url=profile.avatar_url,
         content=new_post.content,
         post_type=new_post.post_type,
@@ -376,6 +382,7 @@ async def update_post(
     db: Session = Depends(get_db)
 ):
     """Update a post (only by post owner)"""
+    user = _get_user_from_db(db, current_user.id)
     post = db.query(CommunityPost).filter(CommunityPost.id == post_id).first()
     
     if not post:
@@ -407,7 +414,7 @@ async def update_post(
         id=post.id,
         user_id=post.user_id,
         username=current_user.username,
-        full_name=current_user.full_name,
+        full_name=user.full_name if user else None,
         avatar_url=profile.avatar_url if profile else None,
         content=post.content,
         post_type=post.post_type,
@@ -531,6 +538,7 @@ async def create_comment(
     db: Session = Depends(get_db)
 ):
     """Add a comment to a post"""
+    user = _get_user_from_db(db, current_user.id)
     post = db.query(CommunityPost).filter(CommunityPost.id == post_id).first()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -578,7 +586,7 @@ async def create_comment(
         post_id=new_comment.post_id,
         user_id=new_comment.user_id,
         username=current_user.username,
-        full_name=current_user.full_name,
+        full_name=user.full_name if user else None,
         avatar_url=profile.avatar_url if profile else None,
         parent_comment_id=new_comment.parent_comment_id,
         content=new_comment.content,
@@ -816,6 +824,7 @@ async def update_profile(
     db: Session = Depends(get_db)
 ):
     """Update current user's profile"""
+    user = _get_user_from_db(db, current_user.id)
     profile = get_user_profile_or_create(db, current_user.id)
     
     # Update fields
@@ -840,7 +849,7 @@ async def update_profile(
     return UserProfileResponse(
         user_id=current_user.id,
         username=current_user.username,
-        full_name=current_user.full_name,
+        full_name=user.full_name if user else None,
         bio=profile.bio,
         avatar_url=profile.avatar_url,
         cover_image_url=profile.cover_image_url,
@@ -867,6 +876,7 @@ async def create_event(
     db: Session = Depends(get_db)
 ):
     """Create a community event"""
+    user = _get_user_from_db(db, current_user.id)
     new_event = CommunityEvent(
         created_by=current_user.id,
         title=event_data.title,
@@ -888,7 +898,7 @@ async def create_event(
         id=new_event.id,
         created_by=new_event.created_by,
         creator_username=current_user.username,
-        creator_name=current_user.full_name,
+        creator_name=user.full_name if user else None,
         title=new_event.title,
         description=new_event.description,
         event_type=new_event.event_type,
